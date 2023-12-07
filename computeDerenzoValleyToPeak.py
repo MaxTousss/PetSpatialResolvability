@@ -548,7 +548,8 @@ def extractLineProfile(_im, _lpExt, _cSpotSize, _imSize, _roiRatio, _lpSampleRat
 	return segLp
 	
 	
-def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing):
+def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing, 
+	                          _savePath):
 	"""
 	Def.: Compute the valley to peak ratio of each sector using the metric _metric. 
 		The valley to peak ratio of a sector is defined as the mean of the valley to 
@@ -563,6 +564,7 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 	@_vprHistos (bool): If true, we show the histograms of VPRs.
 	@_imSpacing (List, 2 floats): Physical space, in x and y axes, between the image 
 		pixels.
+	@_savePath (Str): Path where to save the figure.
 	Return:
 		mean (1D numpy array, Float)
 		std (1D numpy array, Float)
@@ -599,7 +601,8 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 
 	# Plot histograms of vToP
 	if _vprHistos:
-		showValleyToPeakRatioHistograms(vToPhistoAll, _metric, _roiRatio, _imSpacing)
+		showValleyToPeakRatioHistograms(vToPhistoAll, _metric, _roiRatio, _imSpacing, \
+		                                _savePath)
 
 	# Compute resolvability of rods in each sector
 	resolv = []
@@ -680,13 +683,14 @@ def genJsonExample(_path):
 #########################################################################################
 # Visualization features:
 #########################################################################################
-def showTrianglePosOnImage(_im, _imSpacing, _lpConfig):
+def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 	"""
 	Def.: Show the triangles defined in _lpConfig superposed on _im.
 	@_im (2D numpy array): The image to study.
 	@_imSpacing (List, 2 floats): Physical space, in x and y axes, between the image 
 		pixels.
 	@_lpConfig (Dict): Configuration of the lines profile to extract.
+	@_savePath (Str): Path where to save the figure.
 	TODO: Possibly 1 or 1.5 pixels offset.
 	"""
 	# Parameters of visualization.
@@ -717,10 +721,13 @@ def showTrianglePosOnImage(_im, _imSpacing, _lpConfig):
 						edgecolor=color[i], facecolor=color[i])
 			ax.add_artist(draw_circle)
 	plt.tight_layout(pad=0)
-	plt.show()	
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + "posTriang.png")
 	
 	
-def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter):
+def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _savePath):
 	"""
 	Def.: Show the spots position predicted from the configuration file superposed on 
 		_im. 
@@ -729,6 +736,7 @@ def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter):
 		pixels.
 	@_lpConfig (Dict): Configuration of the lines profile to extract.
 	@_spotsCenter (List of numpy arrays): Positions of spots centers.
+	@_savePath (Str): Path where to save the figure.
 	TODO: Possibly 1 on 1.5 pixels offset.
 	"""
 	# Put image in physical space.
@@ -754,10 +762,14 @@ def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter):
 										edgecolor="red", facecolor='red')
 			ax.add_artist(draw_circle)
 	plt.tight_layout(pad=0)
-	plt.show()
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + "posSpot.png")
 	
 	
-def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos):
+def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos, 
+	                        _savePath):
 	"""
 	Def.: Show the lines profile defined in the configuration file superposed on _im.
 	@_im (2D numpy array): The image to study.
@@ -767,13 +779,14 @@ def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos)
 	@_spotsCenter (List of numpy arrays): Positions of spots centers.
 	@_lpExtPos (list of lists): Edges of every line profile arranged as
 				[nbSector, nbAngle, nbRow, nbLpCurrSectorAndRow, ptsExt, nDim]
+	@_savePath (Str): Path where to save the figure.
 	TODO: Possibly 1 on 1.5 pixels offset.
 	TODO: Add an option for seeing subset of line profile?
 	"""
 	# Parameters of visualization.
 	color = ['r', 'g', 'b']	
 	linewidthChoice = _lpConfig["spotsSize"]
-	
+
 	# Put image in physical space.
 	tmpX = _im.shape[0] * _imSpacing[0] / 2.0
 	tmpY = _im.shape[1] * _imSpacing[1] / 2.0
@@ -796,13 +809,23 @@ def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos)
 		for cAng in range(3):
 				for cRowLp in _lpExtPos[cSec][cAng]:
 					for cLp in cRowLp:
-						plt.plot(cLp[:, 0], cLp[:, 1],
-									linewidth=linewidthChoice[cSec], color=color[cAng])
+						lpPerpDir = (cLp[1, :] - cLp[0, :])[::-1] \
+						             * np.array([-1.0, 1.0])
+						lpPerpDir /= np.linalg.norm(lpPerpDir)
+						oneSide = cLp + 0.5 * _imSpacing[0] * lpPerpDir
+						otherSide = cLp - 0.5 * _imSpacing[0] * lpPerpDir
+						plt.fill(np.append(oneSide[:, 0], otherSide[::-1, 0]), \
+						         np.append(oneSide[:, 1], otherSide[::-1, 1]), \
+						         color=color[cAng])
 	plt.tight_layout(pad=0)
-	plt.show()	
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + "lineProfile.png")
 
 
-def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacing):
+def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacing, \
+	                                _savePath):
 	'''
 	Def: Display valley-to-peak ratios histograms for each phantom's sections.
 	@_vToPhistoAll (List of lists): All VPR values, divided by phantom section.
@@ -812,6 +835,7 @@ def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacin
 	    for the two spots and the second is for the background/valley.
 	@_imSpacing (List, 2 floats): Physical space, in x and y axes, between the image 
 		pixels.
+	@_savePath (Str): Path where to save the figure.
 	'''
 	fig, axs = plt.subplots(3, 3)
 	fig.set_size_inches(18.5, 10.5)
@@ -862,7 +886,10 @@ def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacin
 
 	plt.subplots_adjust(left=0.05, right=0.95, top=0.95, bottom=0.05, wspace=0.20, 
 	                    hspace=0.40)
-	plt.show()
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + ".png")
 
 
 def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
@@ -979,6 +1006,10 @@ def parserCreator():
 	parser.add_argument('--showVprHistos', action='store_true', required=False,\
 						dest='showVprHistos', default=False, \
 						help='Show valley-to-peak ratio histograms.')
+	parser.add_argument('--pathForFigures', type=str, required=False,\
+						dest='pathForFigures', default=None, \
+						help='The figures are now saved as file(s) at the place of '
+						     'showing them.')
 	# parser.add_argument('-amideRotMatrix', nargs="+", type=float, required=False,\
 	# 					dest='amideRotMatrix', default=None, \
 	# 					help='The rotation matrix, found with Amide, to reorient that '
@@ -1036,12 +1067,14 @@ if __name__=='__main__':
 	lpExtPos, spotsCenter = genLpExtremumPos(lpConfig)
 	
 	if args.showTriangPos == True:
-		showTrianglePosOnImage(listIm[args.imageShown], imSpacing, lpConfig)
+		showTrianglePosOnImage(listIm[args.imageShown], imSpacing, lpConfig, \
+		                       args.pathForFigures)
 	if args.showSpotsPos == True:
-		showSpotsPosOnImage(listIm[args.imageShown], imSpacing, lpConfig, spotsCenter)
+		showSpotsPosOnImage(listIm[args.imageShown], imSpacing, lpConfig, spotsCenter, \
+		                    args.pathForFigures)
 	if args.showLinesProfile == True:
 		showLinesProfileOnImage(listIm[args.imageShown], imSpacing, lpConfig, 
-								spotsCenter, lpExtPos)
+								spotsCenter, lpExtPos, args.pathForFigures)
 	
 	if args.saveResults != None:
 		resultArray = -np.ones(shape=(len(listIm), 6))
@@ -1049,8 +1082,6 @@ if __name__=='__main__':
 	for l, im in enumerate(listIm):
 		segLp = extractAllLineProfile(im, lpExtPos, lpConfig["spotsSize"], imSpacing, \
 		                              args.roiRatio)
-		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
-		                                    args.showVprHistos, imSpacing)
 		
 		if args.stackofIt == True:
 			# Special cases where a 3D numpy array contains multiple 2D images that are 
@@ -1062,6 +1093,14 @@ if __name__=='__main__':
 			cImName = f"{fName}, iteration {cIte} of {maxIte}" 
 		else:
 			cImName = args.imPath[l]
+
+		if args.pathForFigures is None:
+			pathForFigures = None 
+		else:
+			pathForFigures = args.pathForFigures + "histo" + cImName.replace(" ", "_")
+		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
+		                                    args.showVprHistos, imSpacing, 
+		                                    pathForFigures)
 
 		if args.saveResults == None:
 			print("\n=== Results ===")

@@ -5,9 +5,13 @@ Based on the suggestions in [1] for describing PET spatial resolution, this scri
 
 
 # Implementation of resolvability
-Here, resolvability is defined as the percent of valid pairs of spots in a sector that respect the Rayleigh Criterion. A valid pair of spots is defined as two spots in the sector that are distanced by a valley with the same width as the spots of that sector. This means that spots that are in the frontier of the sector are less sampled.
+Here, resolvability is defined as the percent of valid pairs of spots in a sector that respect the Rayleigh Criterion. 
+A valid pair of spots is defined as two spots in the sector that are distanced by a valley with the same width as the spots of that sector. 
+This means that spots that are in the frontier of the sector are less sampled.
 
-The evaluation of the Rayleigh Criterion for a pair of spots can be modulated in two ways. First, the user can define the portion of the region of interest to consider for the valley and for the peaks. Second, the user can use three metrics: minimum of the valley vs mean of the maximum of the peaks, mean of the valley vs mean of the peaks and mean of the valley vs maximum of the valley.   
+The evaluation of the Rayleigh Criterion for a pair of spots can be modulated in two ways. 
+First, the user can define the portion of the region of interest to consider for the valley and for the peaks. 
+Second, the user can use three metrics: minimum of the valley vs mean of the maximum of the peaks, mean of the valley vs mean of the peaks and mean of the valley vs maximum of the valley.   
 
 
 # How to use
@@ -26,20 +30,35 @@ python3 computeDerenzoValleyToPeak.py \
 - Fifth line: Let the results be printed in the terminal and show histograms of each sector for every 2D images.
 
 ## Step-by-step with (too?) many words
-Orientation and dimensions order are different among the images format. For this reason, we have provided some basic tools to describe the sectors in the system used in this script.
+Orientation and dimensions order are different among the images format. 
+For this reason, we have provided some basic tools to describe the sectors in the system used in this script.
 
 ### Create the template for the configuration file
-First, the argument `--genJsonExample` can be used to generate the template of the configuration file, in the json format, which describes the sectors. Sectors are defined using three parameters: the size of its spots, its number of rows and the $(x, y)$ position of the center of the three spots that encompass the sector vertices. Only the spots included in the triangle formed by those three spots are considered in this script. If you include rows with missing spots, the resolvability will be inaccurate.
+First, the argument `--genJsonExample` can be used to generate the template of the configuration file, in the json format, which describes the sectors. 
+Sectors are defined using three parameters: the size of its spots, its number of rows and the $(x, y)$ position of the center of the three spots that encompass the sector vertices. 
+Only the spots included in the triangle formed by those three spots are considered in this script. 
+Note that sometimes Hot Spot phantoms have sections with their last external row having fewer points than their penultimate row. 
+The spots at the edges of the penultimate row should be used to place two of the three vertices of the triangle, ensuring that a triangle that does not enclose missing hot spots.
+If you include rows with missing spots, the resolvability will be inaccurate. 
 
-The following assume that your image format is supported by the script. See the section titled `Image format` if you are not sure.
+The following assume that your image format is supported by the script. 
+See the section titled `Image format` if you are not sure.
 
 ### Validate the position of the triangle vertices 
-While the first two parameters of the configuration file should be known by the user, the last one is dependent on the script internal orientation/order of the $(x, y)$ axes. Thus, it is often more straight forward to use the `--showTriangPos` option and mouse-over to get the values needed in the configuration file. In the following image, you can see the results of that option when the configuration file was correctly defined. The first position, show in red, should be the one nearest to the phantom center. The second position, shown in blue, should be the next vertex by going clockwise (relative to the sector center). The third position, shown in green, should be the final vertex again by going clockwise.
+While the first two parameters of the configuration file should be known by the user, the last one is dependent on the script internal orientation/order of the $(x, y)$ axes. 
+It is therefore **not** recommended to use another software to find the $(x, y)$ positions.
+Currently, it is often more straight forward to use the `--showTriangPos` option and mouse-over to get the values needed in the configuration file. 
+In the following image, you can see the results of that option when the configuration file was correctly defined. 
+The first position, show in red, should be the one nearest to the phantom center. 
+The second position, shown in blue, should be the next vertex by going clockwise (relative to the sector center). 
+The third position, shown in green, should be the final vertex again by going clockwise.
 
 <img src='preview/01_posTriang.png' alt="posTriang" width='300'> 
 
 ### Validate the configuration file
-Assuming that the position of the triangle vertices is done, you can now use the option `--showTriangPos` to see where the spots are expected to be. The next image shows what to expect. If you have correctly done the first step and the red circle are wrongly placed, it could be due to the two others parameters of the configuration file.
+Assuming that the position of the triangle vertices is done, you can now use the option `--showTriangPos` to see where the spots are expected to be. 
+The next image shows what to expect. 
+If you have correctly done the first step and the red circle are wrongly placed, it could be due to the two others parameters of the configuration file.
 
 <img src='preview/02_posSpot.png' width='300'> 
 
@@ -49,7 +68,8 @@ A last sanity check can be done using the `--showLinesProfile` options which wil
 <img src='preview/03_lineProfile.png' width='300'> 
 
 # Output 
-By default, the resolvability of each sector will be printed in the terminal. Here is an example of what to expect:
+By default, the resolvability of each sector will be printed in the terminal. 
+Here is an example of what to expect:
 ~~~
 === Results ===
 Image             : recon_step10_0_500.npy, iteration 30 of 500
@@ -75,9 +95,14 @@ For a more in-depth description of the resolvability of each sector, you can use
 # Image format
 
 ## Dimensionality
-Currently, this script only analyzes 2D images. If 3D images are provided, the user is expected to provide a range of z index to consider. The script then sums the 2D slices of the given range to create a 2D image to analyze. For the analysis of a single slice, you can put twice the z index in the -z argument, for instance `-z 128 128` will only select the slice 128.
+Currently, this script only analyzes 2D images. 
+If 3D images are provided, the user is expected to provide a range of z index to consider. 
+The script then sums the 2D slices of the given range to create a 2D image to analyze. 
+For the analysis of a single slice, you can put twice the z index in the -z argument, for instance `-z 128 128` will only select the slice 128.
 
 ## Format
-The following formats are (at least partially) supported: dicom, dicom directory, binary (float32/float64) with or without header offset, CASToR and 2D/3D numpy. In all cases, the image spatial offset is ignored currently. 
+The following formats are (at least partially) supported: dicom, dicom directory, binary (float32/float64) with or without header offset, CASToR and 2D/3D numpy. 
+In all cases, the image spatial offset is ignored currently. 
 
-The script can process multiple files with one command by providing multiple arguments to `-f`. This can be useful if one desire to analyze multiple iterations of a given reconstruction.
+The script can process multiple files with one command by providing multiple arguments to `-f`. 
+This can be useful if one desire to analyze multiple iterations of a given reconstruction.
