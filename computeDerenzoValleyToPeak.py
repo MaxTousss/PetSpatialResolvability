@@ -725,6 +725,7 @@ def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 		plt.show()	
 	else:
 		plt.savefig(_savePath + "posTriang.png")
+		plt.close()
 	
 	
 def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _savePath):
@@ -766,6 +767,7 @@ def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _savePath):
 		plt.show()	
 	else:
 		plt.savefig(_savePath + "posSpot.png")
+		plt.close()
 	
 	
 def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos, 
@@ -822,6 +824,7 @@ def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos,
 		plt.show()	
 	else:
 		plt.savefig(_savePath + "lineProfile.png")
+		plt.close()
 
 
 def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacing, \
@@ -890,6 +893,7 @@ def showValleyToPeakRatioHistograms(_vToPhistoAll, _metric, _roiRatio, _imSpacin
 		plt.show()	
 	else:
 		plt.savefig(_savePath + ".png")
+		plt.close()
 
 
 def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
@@ -1095,12 +1099,19 @@ if __name__=='__main__':
 			cImName = args.imPath[l]
 
 		if args.pathForFigures is None:
-			pathForFigures = None 
+			saveNameCurrFigure = None 
 		else:
-			pathForFigures = args.pathForFigures + "histo" + cImName.replace(" ", "_")
+			if len(listIm) != 1:
+				# Since the path of the file is not used in naming the figures 
+				uniqueFigId = str(l)
+			else:
+				uniqueFigId = ""
+			saveNameCurrFigure = args.pathForFigures + "histo_" + uniqueFigId \
+			                 + "_" + os.path.basename(cImName).replace(" ", "_")
+			
 		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
 		                                    args.showVprHistos, imSpacing, 
-		                                    pathForFigures)
+		                                    saveNameCurrFigure)
 
 		if args.saveResults == None:
 			print("\n=== Results ===")
