@@ -1102,12 +1102,21 @@ if __name__=='__main__':
 			saveNameCurrFigure = None 
 		else:
 			if len(listIm) != 1:
-				# Since the path of the file is not used in naming the figures 
-				uniqueFigId = str(l)
+				# Since the path of the image file is not used in naming the figures
+				uniqueFigId = str(l) + "_"
 			else:
 				uniqueFigId = ""
+
+			if os.path.isdir(cImName):
+				# If the file name is a directory, take last folder as a name
+				cHistoName = os.path.basename(os.path.normpath(cImName))
+			else:
+				cHistoName = os.path.basename(cImName)
+
+			if args.stackofIt == True:
+				cHistoName = cHistoName.replace(" ", "_").replace(".npy,", "")
 			saveNameCurrFigure = args.pathForFigures + "histo_" + uniqueFigId \
-			                 + "_" + os.path.basename(cImName).replace(" ", "_")
+			                     + cHistoName
 			
 		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
 		                                    args.showVprHistos, imSpacing, 
