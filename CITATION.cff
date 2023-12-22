@@ -1,0 +1,11 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it as below."
+authors:
+- family-names: "Toussaint"
+  given-names: "Maxime"
+- family-names: "Loignon-Houle"
+  given-names: "Francis"
+title: "An interpretation of Rayleigh criterion for PET spatial resolvability"
+version: 1.0.1
+date-released: 2023-12-15
+url: "https://github.com/MaxTousss/PetSpatialResolvability"
