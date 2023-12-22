@@ -5,7 +5,7 @@ authors:
   given-names: "Maxime"
 - family-names: "Loignon-Houle"
   given-names: "Francis"
-title: "An interpretation of Rayleigh criterion for PET spatial resolvability"
+title: "Evaluation of spatial resolvability in hot spot phantoms"
 version: 1.0.1
 date-released: 2023-12-15
 url: "https://github.com/MaxTousss/PetSpatialResolvability"
