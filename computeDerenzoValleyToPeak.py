@@ -69,6 +69,8 @@ import warnings
 import os
 # To read dicom
 import pydicom
+# Csv creation
+import pandas as pd
 # # Needed for rotation (Not used right now)
 # from scipy import ndimage 
 # from scipy.spatial.transform import Rotation
@@ -118,15 +120,21 @@ def loadImages(_imPath, _zIndex, _binFormat, _nImSpacing):
 			imFormat, imPath = extractCastorImInfo(_imPath)
 			listIm, imSpacing = load3DImages(imPath, _zIndex, None, imFormat)
 		elif _imPath[0].endswith(".npy"):
-			# With numpy, we assume that the file hold a stack of 2D images 
+			# With numpy, we assume that the file hold either...
+			#    a 3D numpy array as a stack of 2D images 
+			#    a 2D numpy array
 			# TODO: Enable also multiple numpy 3D images
-			if len(_imPath) != 1:
-				sys.exit("For numpy images, only one image series is supported.")
 			if _nImSpacing is None:
 				sys.exit("The argument nSpacing is required when working with np.array.")
 			imSpacing = list(_nImSpacing)
 			tmp = np.load(_imPath[0])
-			listIm = [tmp[i, :, :].T for i in range(tmp.shape[0])] 
+			if tmp.ndim == 3:
+				if len(_imPath) != 1:
+					sys.exit("For 3D numpy images, only one image series is " \
+					         "supported.")
+				listIm = [tmp[i, :, :].T for i in range(tmp.shape[0])] 
+			else:
+				listIm = [np.load(_imPath[i]).T for i in range(len(_imPath))] 
 		else:
 			# We assume it is a series of images in dicom format 									
 			listIm, imSpacing = loadDicom_2DImages(_imPath)
@@ -932,6 +940,10 @@ def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
 	return imCrop
 
 
+
+#########################################################################################
+# Formating features:
+#########################################################################################
 def fmtResolved(_val, _fmt=''):
 	"""
 	Def.: Create a string of _val with a color that indicates that it is corresponds to
@@ -950,6 +962,29 @@ def fmtNotResolved(_val, _fmt=''):
 	@_fmtL The format to use.
 	"""
 	return f"\x1b[1;31;49m{_val:{_fmt}}\x1b[0m"
+
+
+def simplifyImagesName(_imName):
+	"""
+	Def.: Remove the redondant part of the name of the images. Only consideer redondancy
+	      as a prefix of the images name. 
+	@_imName: List of the image names.
+	"""
+	redondantPart = _imName[0]
+	for cImName in _imName[1:]:
+		tmp = ""
+		for i, carac in enumerate(redondantPart):
+			if carac == cImName[i]:
+				tmp += carac
+			else:
+				break 
+		redondantPart = tmp 
+	
+	if tmp != "":
+		for i in range(len(_imName)):
+			_imName[i] = _imName[i].lstrip(redondantPart)
+	
+	return _imName
 
 
 #########################################################################################
@@ -1039,6 +1074,9 @@ def parserCreator():
 	parser.add_argument('--binVoxelFloatType', type=int, required=False,\
 						dest='binVoxFType', default=32, \
 						help='Set the number of bytes used for voxel float value.')
+	parser.add_argument('--simplifyName', action='store_true', required=False, \
+						dest='simplifyName', default=False, \
+						help='When saving results, simplify the image name.')
 						
 	return parser.parse_args()
 
@@ -1081,7 +1119,8 @@ if __name__=='__main__':
 								spotsCenter, lpExtPos, args.pathForFigures)
 	
 	if args.saveResults != None:
-		resultArray = -np.ones(shape=(len(listIm), 6))
+		resultArray = -np.ones(shape=(len(listIm), 3 * len(lpConfig["spotsSize"])))
+		imName = len(listIm) * [""]
 
 	for l, im in enumerate(listIm):
 		segLp = extractAllLineProfile(im, lpExtPos, lpConfig["spotsSize"], imSpacing, \
@@ -1149,9 +1188,22 @@ if __name__=='__main__':
 			      f"average VPR < 0.735, in {fmtNotResolved('red')} otherwise.\n")
 
 		else:
-			resultArray[l, :results[0].size] = results[0]
+			nbSpot = len(lpConfig["spotsSize"])
+			resultArray[l, :nbSpot] = np.round(results[0], 3)
+			resultArray[l, nbSpot:(2 * nbSpot)] = np.round(results[1], 3)
+			resultArray[l, (2 * nbSpot):] = results[2]
+			# Remove file extention from name
+			imName[l] = cImName.rsplit( ".", 1)[0]
+
+			# asd simplify image name 
 
 	if args.saveResults != None:
-		np.savetxt(args.saveResults, resultArray, delimiter=",")
+		iterables = [["Average VPR", "Stdev VPR", "Resolvability [%]"], \
+		              lpConfig['spotsSize']]
+		header = pd.MultiIndex.from_product(iterables, names=["Metric", "Rod size (mm)"])
+		if args.simplifyName == True and len(imName) != 1:
+			imName = simplifyImagesName(imName) 
+		data = pd.DataFrame(resultArray, columns=header, index=imName)
+		data.to_csv(args.saveResults)
 	
 	
