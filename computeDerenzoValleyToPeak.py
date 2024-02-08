@@ -545,13 +545,17 @@ def extractLineProfile(_im, _lpExt, _cSpotSize, _imSize, _roiRatio, _lpSampleRat
 	secSpotEndingIndex = np.searchsorted(linDom, 2.0 * _cSpotSize \
 	                                            + (1.0 - spotFilter) * _cSpotSize)
 
-	segLp = 3 * [None,]
+	segLp = {}
 	# First spot
-	segLp[0] = lineProfile[firSpotStartingIndex:firSpotEndingIndex]
+	segLp["firstSpot"] = {"linPos": linDom[firSpotStartingIndex:firSpotEndingIndex], \
+	                      "imVal": lineProfile[firSpotStartingIndex:firSpotEndingIndex]}
 	# Valley inbetween the two spots
-	segLp[1] = lineProfile[bckgndStartingIndex:bckgndEndingIndex]
+	segLp["valley"] = {"linPos": linDom[bckgndStartingIndex:bckgndEndingIndex], \
+	                      "imVal": lineProfile[bckgndStartingIndex:bckgndEndingIndex]}
+	lineProfile[bckgndStartingIndex:bckgndEndingIndex]
 	# Second spot
-	segLp[2] = lineProfile[secSpotStartingIndex:secSpotEndingIndex]
+	segLp["secSpot"] = {"linPos": linDom[secSpotStartingIndex:secSpotEndingIndex], \
+	                      "imVal": lineProfile[secSpotStartingIndex:secSpotEndingIndex]}
 
 	return segLp
 	
@@ -577,9 +581,6 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 		mean (1D numpy array, Float)
 		std (1D numpy array, Float)
 	"""	
-	if _metric != "min_max" and _metric != "mean" and _metric != "meanPeakMax":
-		sys.exit("The metric " + _metric + " is not implemented.")
-	
 	# The metric is computed for each sector
 	vToP = np.zeros(len(_segLp))
 	vToPSquared = np.zeros(len(_segLp))
@@ -590,16 +591,7 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 		for cAng in range(len(_segLp[cSect])):
 			for cRow in range(len(_segLp[cSect][cAng])):
 				for cLp in range(len(_segLp[cSect][cAng][cRow])):
-					currLp = _segLp[cSect][cAng][cRow][cLp]
-					if _metric == "min_max":
-						cVal = currLp[1].min() \
-								/ (0.5 * currLp[0].max() + 0.5 * currLp[2].max())
-					elif _metric == "mean":
-						cVal = np.mean(currLp[1]) \
-							/ (0.5 * np.mean(currLp[0]) + 0.5 * np.mean(currLp[2]))
-					elif _metric == "meanPeakMax":	
-						cVal = np.mean(currLp[1]) \
-									/ (max(np.mean(currLp[0]), np.mean(currLp[2])))
+					cVal = metricDict[_metric](_segLp[cSect][cAng][cRow][cLp])
 					vToP[cSect] += cVal
 					vToPSquared[cSect] += cVal**2
 					vToPhisto.append(cVal)
@@ -624,6 +616,101 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 	std = np.sqrt(vToPSquared / nbLp - mean**2)
 
 	return mean, std, resolv
+
+
+def lineProfilMetric_minMax(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as mean of the maximum of both spots 
+	    compared to minimum of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""	
+	val = lineProfil["valley"]["imVal"].min() \
+	                                 / (0.5 * lineProfil["firstSpot"]["imVal"].max() \
+	                                    + 0.5 * lineProfil["secSpot"]["imVal"].max())
+	
+	return val
+
+
+def lineProfilMetric_mean(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as mean of both spots compared to the 
+	    mean of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""
+	val = np.mean(lineProfil["valley"]["imVal"]) \
+	                              / (0.5 * np.mean(lineProfil["firstSpot"]["imVal"]) 
+	                                 + 0.5 * np.mean(lineProfil["secSpot"]["imVal"]))
+	
+	return val
+
+
+def lineProfilMetric_meanPeakMax(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as max of the mean of each spots compared 
+	    to the mean of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""
+	val = np.mean(lineProfil["valley"]["imVal"]) \
+	                               / (max(np.mean(lineProfil["firstSpot"]["imVal"]), \
+	                                       np.mean(lineProfil["secSpot"]["imVal"])))
+	
+	return val
+
+
+def lineProfilMetric_nemaStyle(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as the mean of the max of each spots 
+	    compared to the min of the valley. The min/max of each segment is defined
+	    from a quadratic fit of the segment.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	TODO: Force the sign of the second degree fit?
+	"""
+	segVal = {}
+	# rty To remove before merge
+	color = ['r', 'g', 'b']
+	# rty To remove before merge
+	for i, cSeg in enumerate(lineProfil):
+	# for cSeg in lineProfil:
+		fit_param = np.polyfit(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], 2)
+		func = np.poly1d(fit_param)
+		segQuadFit = func(lineProfil[cSeg]["linPos"])
+		if np.all(np.diff(segQuadFit) < 0.0) or np.all(np.diff(segQuadFit) > 0.0):
+			segVal[cSeg] = np.mean(segQuadFit)
+		else:
+			if cSeg == "valley":
+				if fit_param[0] < 0.0:
+					segVal[cSeg] = np.mean(segQuadFit)
+				else:
+					segVal[cSeg] = np.min(segQuadFit)
+			else:
+				if fit_param[0] > 0.0:
+					segVal[cSeg] = np.mean(segQuadFit)
+				else:
+					segVal[cSeg] = np.max(segQuadFit)
+
+		# rty To remove before merge
+		if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
+			print(fit_param)
+			plt.plot(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], color[i])
+			plt.plot(lineProfil[cSeg]["linPos"], segQuadFit, color[i] + '--')
+	
+	# rty To remove before merge
+	if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
+		print(segVal["valley"], segVal["firstSpot"], segVal["secSpot"])
+
+	val = min(segVal["valley"] / (0.5 * segVal["firstSpot"] + 0.5 * segVal["secSpot"]), \
+	          1.0)
+	
+	# rty To remove before merge
+	if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
+		print(val)
+		plt.show()
+
+	return val
 
 
 
@@ -987,9 +1074,17 @@ def simplifyImagesName(_imName):
 	return _imName
 
 
+
 #########################################################################################
 # Script feature:
 #########################################################################################
+# Trick to be able to define metric as a dictionnary.
+metricDict = {"min_max": lineProfilMetric_minMax,
+              "mean": lineProfilMetric_mean,
+              "meanPeakMax": lineProfilMetric_meanPeakMax, 
+              "nemaStyle": lineProfilMetric_nemaStyle}
+
+
 def parserCreator():
 	parser = argparse.ArgumentParser(description="Use the method suggested in Hallen "
 					"et al 2020 to extract the valley-to-peak ratio of the sectors "
@@ -1012,7 +1107,7 @@ def parserCreator():
 						help='Needed to create a 2D image from a 3D image. It ' \
 								'defines the span of Z index to sum.')
 	parser.add_argument('-m', action='store', required=False, default="min_max", \
-					 	dest='metric', choices=["min_max", "mean", "meanPeakMax"], \
+					 	dest='metric', choices=metricDict.keys(), \
 						help='Metric to use for peak to valley computation.')
 	parser.add_argument('-r', action='store', nargs=2, type=float, required=False, \
 						dest='roiRatio', default=(1.0, 1.0), \
@@ -1194,8 +1289,6 @@ if __name__=='__main__':
 			resultArray[l, (2 * nbSpot):] = results[2]
 			# Remove file extention from name
 			imName[l] = cImName.rsplit( ".", 1)[0]
-
-			# asd simplify image name 
 
 	if args.saveResults != None:
 		iterables = [["Average VPR", "Stdev VPR", "Resolvability [%]"], \
