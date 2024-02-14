@@ -84,6 +84,10 @@ import matplotlib.pylab as plt
 #########################################################################################
 RAYLEIGH_CRITERION = 0.735
 
+# # Warning constant
+# The parabola metric was built by assuming that most of the ROI will be used. As such
+# the code warn the user if the values used are lower than the following.
+roiRatioForParabola = 0.95
 
 
 #########################################################################################
@@ -330,15 +334,15 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 			triangle: The position of the three spots that delimit the trinagle of each 
 				spots to study.
 	'''
-	nbSector = len(lpConfig['spotsSize'])
+	nbSector = len(_lpConfig['spotsSize'])
 	# Tell the user which pair of coordinates of the triangle from which the problem 
 	# arise.
 	triangCase = ["Third vs first", "First vs second", "Second vs third"]
 	
 	for l in range(nbSector):
-		cTriangle = lpConfig["triangle"][l]
-		cSpotsSize = lpConfig["spotsSize"][l]
-		cNbRows = lpConfig['nbRows'][l]
+		cTriangle = _lpConfig["triangle"][l]
+		cSpotsSize = _lpConfig["spotsSize"][l]
+		cNbRows = _lpConfig['nbRows'][l]
 		for k, cCase in enumerate([-1, 0, 1]):
 			# 1)
 			cLength = np.linalg.norm(cTriangle[cCase] - cTriangle[cCase + 1])
@@ -349,8 +353,6 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 							+ " in the " + str(l + 1) + " sector does not correspond " \
 							+ "to what was predicted from the configuration file."
 					warnings.warn(mess)
-				
-	return _lpConfig
 
 
 def genLpExtremumPos(_lpConfig):
@@ -660,7 +662,7 @@ def lineProfilMetric_meanPeakMax(lineProfil):
 	return val
 
 
-def lineProfilMetric_nemaStyle(lineProfil):
+def lineProfilMetric_parabola(lineProfil):
 	"""
 	Def.: Compute the ratio of spots to valley as the mean of the max of each spots 
 	    compared to the min of the valley. The min/max of each segment is defined
@@ -671,44 +673,52 @@ def lineProfilMetric_nemaStyle(lineProfil):
 	"""
 	segVal = {}
 	# rty To remove before merge
-	color = ['r', 'g', 'b']
-	# rty To remove before merge
+	# color = ['r', 'g', 'b']
 	for i, cSeg in enumerate(lineProfil):
-	# for cSeg in lineProfil:
 		fit_param = np.polyfit(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], 2)
 		func = np.poly1d(fit_param)
 		segQuadFit = func(lineProfil[cSeg]["linPos"])
+		# Parobola mix/max OUTSIDE the line profile?
 		if np.all(np.diff(segQuadFit) < 0.0) or np.all(np.diff(segQuadFit) > 0.0):
 			segVal[cSeg] = np.mean(segQuadFit)
 		else:
 			if cSeg == "valley":
+				# Parobola orientation incorrect for a valley?
 				if fit_param[0] < 0.0:
 					segVal[cSeg] = np.mean(segQuadFit)
 				else:
-					segVal[cSeg] = np.min(segQuadFit)
+					# Parabola fit is ignored if it goes lower than the valley values
+					# In theory, this make it more robust for spot larger than the  
+					# spatial resolution
+					segVal[cSeg] = max(np.min(segQuadFit), \
+					                    np.min(lineProfil[cSeg]["imVal"]))
 			else:
+				# Parobola orientation incorrect for a spot?
 				if fit_param[0] > 0.0:
 					segVal[cSeg] = np.mean(segQuadFit)
 				else:
-					segVal[cSeg] = np.max(segQuadFit)
+					# Parabola fit is ignored if it goes higher than the spots values
+					# In theory, this make it more robust for spot larger than the  
+					# spatial resolution
+					segVal[cSeg] = min(np.max(segQuadFit), \
+					                    np.max(lineProfil[cSeg]["imVal"]))
 
-		# rty To remove before merge
-		if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
-			print(fit_param)
-			plt.plot(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], color[i])
-			plt.plot(lineProfil[cSeg]["linPos"], segQuadFit, color[i] + '--')
+		# # rty To remove before merge
+		# if np.abs((lineProfil["secSpot"]["linPos"][-1] \
+		#             - lineProfil["firstSpot"]["linPos"][0]) - 3 * 1.0) < 0.2:
+		# 	print(fit_param)
+		# 	plt.plot(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], color[i])
+		# 	plt.plot(lineProfil[cSeg]["linPos"], segQuadFit, color[i] + '--')
 	
-	# rty To remove before merge
-	if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
-		print(segVal["valley"], segVal["firstSpot"], segVal["secSpot"])
-
 	val = min(segVal["valley"] / (0.5 * segVal["firstSpot"] + 0.5 * segVal["secSpot"]), \
 	          1.0)
 	
-	# rty To remove before merge
-	if np.abs((lineProfil["secSpot"]["linPos"][-1] - lineProfil["firstSpot"]["linPos"][0]) - 3.0 * 1.4) < 0.2:
-		print(val)
-		plt.show()
+	# # rty To remove before merge
+	# if np.abs((lineProfil["secSpot"]["linPos"][-1] \
+	#             - lineProfil["firstSpot"]["linPos"][0]) - 3 * 1.0) < 0.2:
+	# 	print(segVal["valley"], segVal["firstSpot"], segVal["secSpot"])
+	# 	print(val)
+	# 	plt.show()
 
 	return val
 
@@ -1031,6 +1041,61 @@ def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
 #########################################################################################
 # Formating features:
 #########################################################################################
+def genImageName(_imId, _imPath, _stackofIt):
+	"""
+	Def.: Generate a name for the image being processed.
+	@_imId: Position of the image being processing in _listIm.
+	@_imPath: List of paths to the image to process.
+	@_stackofIt: Flag that indicates that the current 3D numpy array is a stack of 2D 
+	  images.
+	"""
+	if _stackofIt == True:
+		# Special cases where a 3D numpy array contains multiple 2D images that are 
+		# step from a iterative reconstruction process.
+		# Example: path/potato_step_10_50.npy
+		fName = _imPath[0].split("/")[-1]
+		maxIte = fName.split("_")[-1].split(".npy")[0]
+		cIte = (_imId + 1) * int(fName.split("step")[-1].split("_")[0])
+		cImName = f"{fName}, iteration {cIte} of {maxIte}" 
+	else:
+		cImName = _imPath[_imId]
+
+	return cImName
+
+
+def genFigureName(_imId, _listIm, _cImName, _pathForFigures, _stackofIt):
+	"""
+	Def.: Generate a name for the figure related to the image being processed.
+	@_imId: Position of the image being processing in _listIm.
+	@_listIm: The list of image to process.
+	@_cImName: The name of the image being processed.
+	@_pathForFigures: Path where to save the figures.
+	@_stackofIt: Flag that indicates that the current 3D numpy array is a stack of 2D 
+	  images.
+	"""
+	if _pathForFigures is None:
+		cFigSavePath = None 
+	else:
+		if len(_listIm) != 1:
+			# Since the path of the image file is not used in naming the figures
+			uniqueFigId = str(_imId) + "_"
+		else:
+			uniqueFigId = ""
+
+		if os.path.isdir(_cImName):
+			# If the file name is a directory, take last folder as a name
+			cHistoName = os.path.basename(os.path.normpath(_cImName))
+		else:
+			cHistoName = os.path.basename(_cImName)
+
+		if _stackofIt == True:
+			cHistoName = cHistoName.replace(" ", "_").replace(".npy,", "")
+		cFigSavePath = args.pathForFigures + "histo_" + uniqueFigId \
+								+ cHistoName
+
+	return cFigSavePath
+
+
 def fmtResolved(_val, _fmt=''):
 	"""
 	Def.: Create a string of _val with a color that indicates that it is corresponds to
@@ -1082,7 +1147,7 @@ def simplifyImagesName(_imName):
 metricDict = {"min_max": lineProfilMetric_minMax,
               "mean": lineProfilMetric_mean,
               "meanPeakMax": lineProfilMetric_meanPeakMax, 
-              "nemaStyle": lineProfilMetric_nemaStyle}
+              "parabola": lineProfilMetric_parabola}
 
 
 def parserCreator():
@@ -1176,6 +1241,29 @@ def parserCreator():
 	return parser.parse_args()
 
 
+def argsValidator(_args):
+	"""
+	Def.: Basic check of some arguments.
+	"""
+	if _args.metric == "parabola":
+		if np.any(np.array(_args.roiRatio) < roiRatioForParabola):
+			print()
+			mess = "At least one of the ROI ratio is lower than "\
+			        "{roiRatioForParabola}. Using small values when choosing the " \
+			        "parabola metric can yield unreliable fits. The user roiRatio " \
+			        "values are kept, but it is recommended using values closer or " \
+			        "equal to 1."
+			warnings.warn(mess)
+
+	if _args.pathForFigures is not None and _args.showVprHistos == False \
+		              and _args.showTriangPos == False and _args.showSpotsPos == False \
+		              and _args.showLinesProfile == False:
+		print()
+		mess = "The argument pathForFigures is only used when one of the show " \
+				"option is enabled. Since it is not the case, it is not used."
+		warnings.warn(mess)
+
+
 
 #########################################################################################
 # Main : We use this to make the module usable as a script and a method.
@@ -1186,6 +1274,8 @@ if __name__=='__main__':
 	     configuration file.
 	'''	
 	args = parserCreator()
+
+	argsValidator(args)
 	
 	if args.genJsonExample == True:
 		genJsonExample(args.lpConfigPath)
@@ -1200,7 +1290,7 @@ if __name__=='__main__':
 
 	lpConfig = loadLineProfileConfig(args.lpConfigPath)
 	
-	lpConfig = checkTriangleValidity(lpConfig, _behavior="")
+	checkTriangleValidity(lpConfig, _behavior="")
 	lpExtPos, spotsCenter = genLpExtremumPos(lpConfig)
 	
 	if args.showTriangPos == True:
@@ -1218,43 +1308,15 @@ if __name__=='__main__':
 		imName = len(listIm) * [""]
 
 	for l, im in enumerate(listIm):
+		cImName = genImageName(l, args.imPath, args.stackofIt)
+		cFigSavePath = genFigureName(l, listIm, cImName, args.pathForFigures, \
+		                             args.stackofIt)
+
 		segLp = extractAllLineProfile(im, lpExtPos, lpConfig["spotsSize"], imSpacing, \
-		                              args.roiRatio)
-		
-		if args.stackofIt == True:
-			# Special cases where a 3D numpy array contains multiple 2D images that are 
-			# step from a iterative reconstruction process.
-			# Example: path/potato_step_10_50.npy
-			fName = args.imPath[0].split("/")[-1]
-			maxIte = fName.split("_")[-1].split(".npy")[0]
-			cIte = (l + 1) * int(fName.split("step")[-1].split("_")[0])
-			cImName = f"{fName}, iteration {cIte} of {maxIte}" 
-		else:
-			cImName = args.imPath[l]
-
-		if args.pathForFigures is None:
-			saveNameCurrFigure = None 
-		else:
-			if len(listIm) != 1:
-				# Since the path of the image file is not used in naming the figures
-				uniqueFigId = str(l) + "_"
-			else:
-				uniqueFigId = ""
-
-			if os.path.isdir(cImName):
-				# If the file name is a directory, take last folder as a name
-				cHistoName = os.path.basename(os.path.normpath(cImName))
-			else:
-				cHistoName = os.path.basename(cImName)
-
-			if args.stackofIt == True:
-				cHistoName = cHistoName.replace(" ", "_").replace(".npy,", "")
-			saveNameCurrFigure = args.pathForFigures + "histo_" + uniqueFigId \
-			                     + cHistoName
-			
+		                              args.roiRatio)	
 		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
 		                                    args.showVprHistos, imSpacing, 
-		                                    saveNameCurrFigure)
+		                                    cFigSavePath)
 
 		if args.saveResults == None:
 			print("\n=== Results ===")
@@ -1277,7 +1339,8 @@ if __name__=='__main__':
 				else:
 					print(fmtNotResolved(avgVpr, '.3f') + '\t', end='')
 			print('\nStdev VPR         :', '\t'.join(f'{k:.3f}' for k in results[1]))
-			print('Resolvability [%] :', '\t'.join(f'{k:.1f}' for k in results[2]))
+			print('Resolvability [%] :', '\t'.join(f'{k:.1f}'.rjust(5) \
+			                                             for k in results[2]))
 
 			print(f"\n---> In {fmtResolved('green')} if phantom section has an " +
 			      f"average VPR < 0.735, in {fmtNotResolved('red')} otherwise.\n")
@@ -1297,6 +1360,9 @@ if __name__=='__main__':
 		if args.simplifyName == True and len(imName) != 1:
 			imName = simplifyImagesName(imName) 
 		data = pd.DataFrame(resultArray, columns=header, index=imName)
-		data.to_csv(args.saveResults)
+		filename, extension = os.path.splitext(args.saveResults)
+		if extension not in ["", ".csv"]:
+			print("Forcing the extension of the results file to be a csv.")  
+		data.to_csv(filename + ".csv")
 	
 	
