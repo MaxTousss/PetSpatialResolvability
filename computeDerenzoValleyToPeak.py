@@ -49,6 +49,8 @@ TODO: (See also TODO in the code)
 	Feature:
 		- Incorporate spots beyond those in a triangle.
 		- Suggest a correction for the triangle vertex position.
+		- Add an option to show a profile of all the spots in a line + the position of
+		  the peaks/valley computed.
 		
 [1] Hallen, P., Schug, D. & Schulz, V. Comments on the NEMA NU 4-2008 Standard on
 	Performance Measurement of Small Animal Positron Emission Tomographs. EJNMMI Phys 7, 
@@ -672,8 +674,6 @@ def lineProfilMetric_parabola(lineProfil):
 	TODO: Force the sign of the second degree fit?
 	"""
 	segVal = {}
-	# rty To remove before merge
-	# color = ['r', 'g', 'b']
 	for i, cSeg in enumerate(lineProfil):
 		fit_param = np.polyfit(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], 2)
 		func = np.poly1d(fit_param)
@@ -702,23 +702,9 @@ def lineProfilMetric_parabola(lineProfil):
 					# spatial resolution
 					segVal[cSeg] = min(np.max(segQuadFit), \
 					                    np.max(lineProfil[cSeg]["imVal"]))
-
-		# # rty To remove before merge
-		# if np.abs((lineProfil["secSpot"]["linPos"][-1] \
-		#             - lineProfil["firstSpot"]["linPos"][0]) - 3 * 1.0) < 0.2:
-		# 	print(fit_param)
-		# 	plt.plot(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], color[i])
-		# 	plt.plot(lineProfil[cSeg]["linPos"], segQuadFit, color[i] + '--')
 	
 	val = min(segVal["valley"] / (0.5 * segVal["firstSpot"] + 0.5 * segVal["secSpot"]), \
 	          1.0)
-	
-	# # rty To remove before merge
-	# if np.abs((lineProfil["secSpot"]["linPos"][-1] \
-	#             - lineProfil["firstSpot"]["linPos"][0]) - 3 * 1.0) < 0.2:
-	# 	print(segVal["valley"], segVal["firstSpot"], segVal["secSpot"])
-	# 	print(val)
-	# 	plt.show()
 
 	return val
 
