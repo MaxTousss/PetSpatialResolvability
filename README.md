@@ -11,7 +11,16 @@ This means that spots that are in the frontier of the sector are less sampled.
 
 The evaluation of the Rayleigh Criterion for a pair of spots can be modulated in two ways. 
 First, the user can define the portion of the region of interest to consider for the valley and for the peaks. 
-Second, the user can use three metrics: minimum of the valley vs mean of the maximum of the peaks, mean of the valley vs mean of the peaks and mean of the valley vs maximum of the valley.   
+Second, the user can use four metrics: 
+- minimum of the valley vs mean of the maximum of the peaks
+- mean of the valley vs mean of the peaks
+- mean of the valley vs maximum of the valley
+- Same as the first except with a parabola fit over each ROI, futhermore
+  - If the fit on a {valley/spot} has a {lower/higher} value than the ROI {minimum/maximum} then the fit is ignored in favor of the ROI values for that {valley/spot}
+    - Motivation: When spots >> spatial resolution, the profile is a plateau which makes the parabola fit {over/under} estimate the {spot/valley}
+  - If the fit has a {negative/positive} curvature for a {valley/spot} the fit is deemed problematic and the mean of the fit is taken for that ROI
+  - If the peak of the parabola is not in the ROI the fit is deemed problematic and the mean of the fit is taken for that ROI
+  - Note: Due to those fine-tuning, using a ROI lower than 0.95 may results in unexpected behavior.
 
 
 # How to use

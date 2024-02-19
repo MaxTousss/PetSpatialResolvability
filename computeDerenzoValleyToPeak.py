@@ -49,6 +49,8 @@ TODO: (See also TODO in the code)
 	Feature:
 		- Incorporate spots beyond those in a triangle.
 		- Suggest a correction for the triangle vertex position.
+		- Add an option to show a profile of all the spots in a line + the position of
+		  the peaks/valley computed.
 		
 [1] Hallen, P., Schug, D. & Schulz, V. Comments on the NEMA NU 4-2008 Standard on
 	Performance Measurement of Small Animal Positron Emission Tomographs. EJNMMI Phys 7, 
@@ -69,6 +71,8 @@ import warnings
 import os
 # To read dicom
 import pydicom
+# Csv creation
+import pandas as pd
 # # Needed for rotation (Not used right now)
 # from scipy import ndimage 
 # from scipy.spatial.transform import Rotation
@@ -82,6 +86,10 @@ import matplotlib.pylab as plt
 #########################################################################################
 RAYLEIGH_CRITERION = 0.735
 
+# # Warning constant
+# The parabola metric was built by assuming that most of the ROI will be used. As such
+# the code warn the user if the values used are lower than the following.
+roiRatioForParabola = 0.95
 
 
 #########################################################################################
@@ -118,15 +126,21 @@ def loadImages(_imPath, _zIndex, _binFormat, _nImSpacing):
 			imFormat, imPath = extractCastorImInfo(_imPath)
 			listIm, imSpacing = load3DImages(imPath, _zIndex, None, imFormat)
 		elif _imPath[0].endswith(".npy"):
-			# With numpy, we assume that the file hold a stack of 2D images 
+			# With numpy, we assume that the file hold either...
+			#    a 3D numpy array as a stack of 2D images 
+			#    a 2D numpy array
 			# TODO: Enable also multiple numpy 3D images
-			if len(_imPath) != 1:
-				sys.exit("For numpy images, only one image series is supported.")
 			if _nImSpacing is None:
 				sys.exit("The argument nSpacing is required when working with np.array.")
 			imSpacing = list(_nImSpacing)
 			tmp = np.load(_imPath[0])
-			listIm = [tmp[i, :, :].T for i in range(tmp.shape[0])] 
+			if tmp.ndim == 3:
+				if len(_imPath) != 1:
+					sys.exit("For 3D numpy images, only one image series is " \
+					         "supported.")
+				listIm = [tmp[i, :, :].T for i in range(tmp.shape[0])] 
+			else:
+				listIm = [np.load(_imPath[i]).T for i in range(len(_imPath))] 
 		else:
 			# We assume it is a series of images in dicom format 									
 			listIm, imSpacing = loadDicom_2DImages(_imPath)
@@ -322,15 +336,15 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 			triangle: The position of the three spots that delimit the trinagle of each 
 				spots to study.
 	'''
-	nbSector = len(lpConfig['spotsSize'])
+	nbSector = len(_lpConfig['spotsSize'])
 	# Tell the user which pair of coordinates of the triangle from which the problem 
 	# arise.
 	triangCase = ["Third vs first", "First vs second", "Second vs third"]
 	
 	for l in range(nbSector):
-		cTriangle = lpConfig["triangle"][l]
-		cSpotsSize = lpConfig["spotsSize"][l]
-		cNbRows = lpConfig['nbRows'][l]
+		cTriangle = _lpConfig["triangle"][l]
+		cSpotsSize = _lpConfig["spotsSize"][l]
+		cNbRows = _lpConfig['nbRows'][l]
 		for k, cCase in enumerate([-1, 0, 1]):
 			# 1)
 			cLength = np.linalg.norm(cTriangle[cCase] - cTriangle[cCase + 1])
@@ -341,8 +355,6 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 							+ " in the " + str(l + 1) + " sector does not correspond " \
 							+ "to what was predicted from the configuration file."
 					warnings.warn(mess)
-				
-	return _lpConfig
 
 
 def genLpExtremumPos(_lpConfig):
@@ -537,13 +549,17 @@ def extractLineProfile(_im, _lpExt, _cSpotSize, _imSize, _roiRatio, _lpSampleRat
 	secSpotEndingIndex = np.searchsorted(linDom, 2.0 * _cSpotSize \
 	                                            + (1.0 - spotFilter) * _cSpotSize)
 
-	segLp = 3 * [None,]
+	segLp = {}
 	# First spot
-	segLp[0] = lineProfile[firSpotStartingIndex:firSpotEndingIndex]
+	segLp["firstSpot"] = {"linPos": linDom[firSpotStartingIndex:firSpotEndingIndex], \
+	                      "imVal": lineProfile[firSpotStartingIndex:firSpotEndingIndex]}
 	# Valley inbetween the two spots
-	segLp[1] = lineProfile[bckgndStartingIndex:bckgndEndingIndex]
+	segLp["valley"] = {"linPos": linDom[bckgndStartingIndex:bckgndEndingIndex], \
+	                      "imVal": lineProfile[bckgndStartingIndex:bckgndEndingIndex]}
+	lineProfile[bckgndStartingIndex:bckgndEndingIndex]
 	# Second spot
-	segLp[2] = lineProfile[secSpotStartingIndex:secSpotEndingIndex]
+	segLp["secSpot"] = {"linPos": linDom[secSpotStartingIndex:secSpotEndingIndex], \
+	                      "imVal": lineProfile[secSpotStartingIndex:secSpotEndingIndex]}
 
 	return segLp
 	
@@ -569,9 +585,6 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 		mean (1D numpy array, Float)
 		std (1D numpy array, Float)
 	"""	
-	if _metric != "min_max" and _metric != "mean" and _metric != "meanPeakMax":
-		sys.exit("The metric " + _metric + " is not implemented.")
-	
 	# The metric is computed for each sector
 	vToP = np.zeros(len(_segLp))
 	vToPSquared = np.zeros(len(_segLp))
@@ -582,16 +595,7 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 		for cAng in range(len(_segLp[cSect])):
 			for cRow in range(len(_segLp[cSect][cAng])):
 				for cLp in range(len(_segLp[cSect][cAng][cRow])):
-					currLp = _segLp[cSect][cAng][cRow][cLp]
-					if _metric == "min_max":
-						cVal = currLp[1].min() \
-								/ (0.5 * currLp[0].max() + 0.5 * currLp[2].max())
-					elif _metric == "mean":
-						cVal = np.mean(currLp[1]) \
-							/ (0.5 * np.mean(currLp[0]) + 0.5 * np.mean(currLp[2]))
-					elif _metric == "meanPeakMax":	
-						cVal = np.mean(currLp[1]) \
-									/ (max(np.mean(currLp[0]), np.mean(currLp[2])))
+					cVal = metricDict[_metric](_segLp[cSect][cAng][cRow][cLp])
 					vToP[cSect] += cVal
 					vToPSquared[cSect] += cVal**2
 					vToPhisto.append(cVal)
@@ -616,6 +620,93 @@ def computeSectorValleyToPeak(_segLp, _metric, _roiRatio, _vprHistos, _imSpacing
 	std = np.sqrt(vToPSquared / nbLp - mean**2)
 
 	return mean, std, resolv
+
+
+def lineProfilMetric_minMax(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as mean of the maximum of both spots 
+	    compared to minimum of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""	
+	val = lineProfil["valley"]["imVal"].min() \
+	                                 / (0.5 * lineProfil["firstSpot"]["imVal"].max() \
+	                                    + 0.5 * lineProfil["secSpot"]["imVal"].max())
+	
+	return val
+
+
+def lineProfilMetric_mean(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as mean of both spots compared to the 
+	    mean of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""
+	val = np.mean(lineProfil["valley"]["imVal"]) \
+	                              / (0.5 * np.mean(lineProfil["firstSpot"]["imVal"]) 
+	                                 + 0.5 * np.mean(lineProfil["secSpot"]["imVal"]))
+	
+	return val
+
+
+def lineProfilMetric_meanPeakMax(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as max of the mean of each spots compared 
+	    to the mean of the valley.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	"""
+	val = np.mean(lineProfil["valley"]["imVal"]) \
+	                               / (max(np.mean(lineProfil["firstSpot"]["imVal"]), \
+	                                       np.mean(lineProfil["secSpot"]["imVal"])))
+	
+	return val
+
+
+def lineProfilMetric_parabola(lineProfil):
+	"""
+	Def.: Compute the ratio of spots to valley as the mean of the max of each spots 
+	    compared to the min of the valley. The min/max of each segment is defined
+	    from a quadratic fit of the segment.
+	@_segLp (Dict, Dict, array): Segmented line profile of two spots and the valley 
+	    inbetween.
+	TODO: Force the sign of the second degree fit?
+	"""
+	segVal = {}
+	for i, cSeg in enumerate(lineProfil):
+		fit_param = np.polyfit(lineProfil[cSeg]["linPos"], lineProfil[cSeg]["imVal"], 2)
+		func = np.poly1d(fit_param)
+		segQuadFit = func(lineProfil[cSeg]["linPos"])
+		# Parobola mix/max OUTSIDE the line profile?
+		if np.all(np.diff(segQuadFit) < 0.0) or np.all(np.diff(segQuadFit) > 0.0):
+			segVal[cSeg] = np.mean(segQuadFit)
+		else:
+			if cSeg == "valley":
+				# Parobola orientation incorrect for a valley?
+				if fit_param[0] < 0.0:
+					segVal[cSeg] = np.mean(segQuadFit)
+				else:
+					# Parabola fit is ignored if it goes lower than the valley values
+					# In theory, this make it more robust for spot larger than the  
+					# spatial resolution
+					segVal[cSeg] = max(np.min(segQuadFit), \
+					                    np.min(lineProfil[cSeg]["imVal"]))
+			else:
+				# Parobola orientation incorrect for a spot?
+				if fit_param[0] > 0.0:
+					segVal[cSeg] = np.mean(segQuadFit)
+				else:
+					# Parabola fit is ignored if it goes higher than the spots values
+					# In theory, this make it more robust for spot larger than the  
+					# spatial resolution
+					segVal[cSeg] = min(np.max(segQuadFit), \
+					                    np.max(lineProfil[cSeg]["imVal"]))
+	
+	val = min(segVal["valley"] / (0.5 * segVal["firstSpot"] + 0.5 * segVal["secSpot"]), \
+	          1.0)
+
+	return val
 
 
 
@@ -932,6 +1023,65 @@ def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
 	return imCrop
 
 
+
+#########################################################################################
+# Formating features:
+#########################################################################################
+def genImageName(_imId, _imPath, _stackofIt):
+	"""
+	Def.: Generate a name for the image being processed.
+	@_imId: Position of the image being processing in _listIm.
+	@_imPath: List of paths to the image to process.
+	@_stackofIt: Flag that indicates that the current 3D numpy array is a stack of 2D 
+	  images.
+	"""
+	if _stackofIt == True:
+		# Special cases where a 3D numpy array contains multiple 2D images that are 
+		# step from a iterative reconstruction process.
+		# Example: path/potato_step_10_50.npy
+		fName = _imPath[0].split("/")[-1]
+		maxIte = fName.split("_")[-1].split(".npy")[0]
+		cIte = (_imId + 1) * int(fName.split("step")[-1].split("_")[0])
+		cImName = f"{fName}, iteration {cIte} of {maxIte}" 
+	else:
+		cImName = _imPath[_imId]
+
+	return cImName
+
+
+def genFigureName(_imId, _listIm, _cImName, _pathForFigures, _stackofIt):
+	"""
+	Def.: Generate a name for the figure related to the image being processed.
+	@_imId: Position of the image being processing in _listIm.
+	@_listIm: The list of image to process.
+	@_cImName: The name of the image being processed.
+	@_pathForFigures: Path where to save the figures.
+	@_stackofIt: Flag that indicates that the current 3D numpy array is a stack of 2D 
+	  images.
+	"""
+	if _pathForFigures is None:
+		cFigSavePath = None 
+	else:
+		if len(_listIm) != 1:
+			# Since the path of the image file is not used in naming the figures
+			uniqueFigId = str(_imId) + "_"
+		else:
+			uniqueFigId = ""
+
+		if os.path.isdir(_cImName):
+			# If the file name is a directory, take last folder as a name
+			cHistoName = os.path.basename(os.path.normpath(_cImName))
+		else:
+			cHistoName = os.path.basename(_cImName)
+
+		if _stackofIt == True:
+			cHistoName = cHistoName.replace(" ", "_").replace(".npy,", "")
+		cFigSavePath = args.pathForFigures + "histo_" + uniqueFigId \
+								+ cHistoName
+
+	return cFigSavePath
+
+
 def fmtResolved(_val, _fmt=''):
 	"""
 	Def.: Create a string of _val with a color that indicates that it is corresponds to
@@ -952,9 +1102,40 @@ def fmtNotResolved(_val, _fmt=''):
 	return f"\x1b[1;31;49m{_val:{_fmt}}\x1b[0m"
 
 
+def simplifyImagesName(_imName):
+	"""
+	Def.: Remove the redondant part of the name of the images. Only consideer redondancy
+	      as a prefix of the images name. 
+	@_imName: List of the image names.
+	"""
+	redondantPart = _imName[0]
+	for cImName in _imName[1:]:
+		tmp = ""
+		for i, carac in enumerate(redondantPart):
+			if carac == cImName[i]:
+				tmp += carac
+			else:
+				break 
+		redondantPart = tmp 
+	
+	if tmp != "":
+		for i in range(len(_imName)):
+			_imName[i] = _imName[i].lstrip(redondantPart)
+	
+	return _imName
+
+
+
 #########################################################################################
 # Script feature:
 #########################################################################################
+# Trick to be able to define metric as a dictionnary.
+metricDict = {"min_max": lineProfilMetric_minMax,
+              "mean": lineProfilMetric_mean,
+              "meanPeakMax": lineProfilMetric_meanPeakMax, 
+              "parabola": lineProfilMetric_parabola}
+
+
 def parserCreator():
 	parser = argparse.ArgumentParser(description="Use the method suggested in Hallen "
 					"et al 2020 to extract the valley-to-peak ratio of the sectors "
@@ -977,7 +1158,7 @@ def parserCreator():
 						help='Needed to create a 2D image from a 3D image. It ' \
 								'defines the span of Z index to sum.')
 	parser.add_argument('-m', action='store', required=False, default="min_max", \
-					 	dest='metric', choices=["min_max", "mean", "meanPeakMax"], \
+					 	dest='metric', choices=metricDict.keys(), \
 						help='Metric to use for peak to valley computation.')
 	parser.add_argument('-r', action='store', nargs=2, type=float, required=False, \
 						dest='roiRatio', default=(1.0, 1.0), \
@@ -1039,8 +1220,34 @@ def parserCreator():
 	parser.add_argument('--binVoxelFloatType', type=int, required=False,\
 						dest='binVoxFType', default=32, \
 						help='Set the number of bytes used for voxel float value.')
+	parser.add_argument('--simplifyName', action='store_true', required=False, \
+						dest='simplifyName', default=False, \
+						help='When saving results, simplify the image name.')
 						
 	return parser.parse_args()
+
+
+def argsValidator(_args):
+	"""
+	Def.: Basic check of some arguments.
+	"""
+	if _args.metric == "parabola":
+		if np.any(np.array(_args.roiRatio) < roiRatioForParabola):
+			print()
+			mess = "At least one of the ROI ratio is lower than "\
+			        "{roiRatioForParabola}. Using small values when choosing the " \
+			        "parabola metric can yield unreliable fits. The user roiRatio " \
+			        "values are kept, but it is recommended using values closer or " \
+			        "equal to 1."
+			warnings.warn(mess)
+
+	if _args.pathForFigures is not None and _args.showVprHistos == False \
+		              and _args.showTriangPos == False and _args.showSpotsPos == False \
+		              and _args.showLinesProfile == False:
+		print()
+		mess = "The argument pathForFigures is only used when one of the show " \
+				"option is enabled. Since it is not the case, it is not used."
+		warnings.warn(mess)
 
 
 
@@ -1053,6 +1260,8 @@ if __name__=='__main__':
 	     configuration file.
 	'''	
 	args = parserCreator()
+
+	argsValidator(args)
 	
 	if args.genJsonExample == True:
 		genJsonExample(args.lpConfigPath)
@@ -1067,7 +1276,7 @@ if __name__=='__main__':
 
 	lpConfig = loadLineProfileConfig(args.lpConfigPath)
 	
-	lpConfig = checkTriangleValidity(lpConfig, _behavior="")
+	checkTriangleValidity(lpConfig, _behavior="")
 	lpExtPos, spotsCenter = genLpExtremumPos(lpConfig)
 	
 	if args.showTriangPos == True:
@@ -1081,46 +1290,19 @@ if __name__=='__main__':
 								spotsCenter, lpExtPos, args.pathForFigures)
 	
 	if args.saveResults != None:
-		resultArray = -np.ones(shape=(len(listIm), 6))
+		resultArray = -np.ones(shape=(len(listIm), 3 * len(lpConfig["spotsSize"])))
+		imName = len(listIm) * [""]
 
 	for l, im in enumerate(listIm):
+		cImName = genImageName(l, args.imPath, args.stackofIt)
+		cFigSavePath = genFigureName(l, listIm, cImName, args.pathForFigures, \
+		                             args.stackofIt)
+
 		segLp = extractAllLineProfile(im, lpExtPos, lpConfig["spotsSize"], imSpacing, \
-		                              args.roiRatio)
-		
-		if args.stackofIt == True:
-			# Special cases where a 3D numpy array contains multiple 2D images that are 
-			# step from a iterative reconstruction process.
-			# Example: path/potato_step_10_50.npy
-			fName = args.imPath[0].split("/")[-1]
-			maxIte = fName.split("_")[-1].split(".npy")[0]
-			cIte = (l + 1) * int(fName.split("step")[-1].split("_")[0])
-			cImName = f"{fName}, iteration {cIte} of {maxIte}" 
-		else:
-			cImName = args.imPath[l]
-
-		if args.pathForFigures is None:
-			saveNameCurrFigure = None 
-		else:
-			if len(listIm) != 1:
-				# Since the path of the image file is not used in naming the figures
-				uniqueFigId = str(l) + "_"
-			else:
-				uniqueFigId = ""
-
-			if os.path.isdir(cImName):
-				# If the file name is a directory, take last folder as a name
-				cHistoName = os.path.basename(os.path.normpath(cImName))
-			else:
-				cHistoName = os.path.basename(cImName)
-
-			if args.stackofIt == True:
-				cHistoName = cHistoName.replace(" ", "_").replace(".npy,", "")
-			saveNameCurrFigure = args.pathForFigures + "histo_" + uniqueFigId \
-			                     + cHistoName
-			
+		                              args.roiRatio)	
 		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
 		                                    args.showVprHistos, imSpacing, 
-		                                    saveNameCurrFigure)
+		                                    cFigSavePath)
 
 		if args.saveResults == None:
 			print("\n=== Results ===")
@@ -1143,15 +1325,30 @@ if __name__=='__main__':
 				else:
 					print(fmtNotResolved(avgVpr, '.3f') + '\t', end='')
 			print('\nStdev VPR         :', '\t'.join(f'{k:.3f}' for k in results[1]))
-			print('Resolvability [%] :', '\t'.join(f'{k:.1f}' for k in results[2]))
+			print('Resolvability [%] :', '\t'.join(f'{k:.1f}'.rjust(5) \
+			                                             for k in results[2]))
 
 			print(f"\n---> In {fmtResolved('green')} if phantom section has an " +
 			      f"average VPR < 0.735, in {fmtNotResolved('red')} otherwise.\n")
 
 		else:
-			resultArray[l, :results[0].size] = results[0]
+			nbSpot = len(lpConfig["spotsSize"])
+			resultArray[l, :nbSpot] = np.round(results[0], 3)
+			resultArray[l, nbSpot:(2 * nbSpot)] = np.round(results[1], 3)
+			resultArray[l, (2 * nbSpot):] = results[2]
+			# Remove file extention from name
+			imName[l] = cImName.rsplit( ".", 1)[0]
 
 	if args.saveResults != None:
-		np.savetxt(args.saveResults, resultArray, delimiter=",")
+		iterables = [["Average VPR", "Stdev VPR", "Resolvability [%]"], \
+		              lpConfig['spotsSize']]
+		header = pd.MultiIndex.from_product(iterables, names=["Metric", "Rod size (mm)"])
+		if args.simplifyName == True and len(imName) != 1:
+			imName = simplifyImagesName(imName) 
+		data = pd.DataFrame(resultArray, columns=header, index=imName)
+		filename, extension = os.path.splitext(args.saveResults)
+		if extension not in ["", ".csv"]:
+			print("Forcing the extension of the results file to be a csv.")  
+		data.to_csv(filename + ".csv")
 	
 	
