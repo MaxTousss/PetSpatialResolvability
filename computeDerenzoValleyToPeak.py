@@ -142,7 +142,7 @@ def loadImages(_imPath, _zIndex, _binFormat, _nImSpacing):
 			else:
 				listIm = [np.load(_imPath[i]).T for i in range(len(_imPath))] 
 		else:
-			# We assume it is a series of images in dicom format 									
+			# We assume it is a series of images in dicom format 		
 			listIm, imSpacing = loadDicom_2DImages(_imPath)
 	elif len([cP for cP in _imPath if os.path.exists(cP)]) != len(_imPath):
 		tmp = [cP for cP in _imPath if not os.path.exists(cP)]
@@ -454,7 +454,7 @@ def genLpExtremumPos(_lpConfig):
 
 
 def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
-                          _lpSampleRate=10000):
+                          _backgroundRoi=None, _lpSampleRate=10000):
 	"""
 	Def.: Extract the lines profile defined in _lpExtPos from _im. The lines profile are 
 		segmented in a dictionnary of [sector, angle, row]. Each line profile is 
@@ -467,6 +467,8 @@ def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
 		pixels.
 	@_roiRatio (Tuple, 2 Float): Ratio of the region of interest to keep. The first is 
 	    for the two spots and the second is for the background/valley.
+	@_backgroundRoi (List, 2 List, 2 floats): Starting and ending position of the line
+	    used to compute the phantom background.
 	@_lpSampleRate (Integer): The number of samples used for the extraction of the 
 		profiles from the image.
 	Return: 
@@ -475,6 +477,23 @@ def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
 	"""
 	imSize = np.asarray(_im.shape[0]) * _imSpacing
 	
+	if _backgroundRoi is not None:
+		# Discretize line profile sampling.
+		x = np.linspace(_backgroundRoi[0][0], _backgroundRoi[1][0], _lpSampleRate)
+		y = np.linspace(_backgroundRoi[0][1], _backgroundRoi[1][1], _lpSampleRate)
+		# Extract the values of the line profile using nearest interpolation.
+		# TODO: Offer fancier interpolation?
+		# TODO: Make sure that x, y axis are always stored as _im[y, x]
+		x_indexSpace = np.floor(((x + (imSize[1] / 2.0)) / imSize[1]) * _im.shape[1]) 
+		x_indexSpace = x_indexSpace.astype(np.int32)
+		y_indexSpace = np.floor(((y + (imSize[0] / 2.0)) / imSize[0]) * _im.shape[0]) 
+		y_indexSpace = y_indexSpace.astype(np.int32)
+		# TODO: read and adapt orientation. 
+		lineProfile = _im[:, :][y_indexSpace, x_indexSpace]
+		im = _im - np.mean(lineProfile)
+	else:
+		im = _im
+
 	# Init first level of the dictionnary
 	segLp = len(_lpExtPos) * [None,]
 	for cSect in range(len(_lpExtPos)):
@@ -489,9 +508,10 @@ def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
 				segLp[cSect][cAng][cRow] = len(_lpExtPos[cSect][cAng][cRow]) * [None,]
 				for cLp in range(len(_lpExtPos[cSect][cAng][cRow])):
 					currLp = _lpExtPos[cSect][cAng][cRow][cLp]
-					segLp[cSect][cAng][cRow][cLp] = extractLineProfile(_im, currLp, \
+					segLp[cSect][cAng][cRow][cLp] = extractLineProfile(im, currLp, \
 													cSpotSize, imSize, _roiRatio, \
 													_lpSampleRate)
+	
 	return segLp
 	
 	
@@ -703,8 +723,8 @@ def lineProfilMetric_parabola(lineProfil):
 					segVal[cSeg] = min(np.max(segQuadFit), \
 					                    np.max(lineProfil[cSeg]["imVal"]))
 	
-	val = min(segVal["valley"] / (0.5 * segVal["firstSpot"] + 0.5 * segVal["secSpot"]), \
-	          1.0)
+	val = min((segVal["valley"]) / (0.5 * segVal["firstSpot"] \
+	                                 + 0.5 * segVal["secSpot"]), 1.0)
 
 	return val
 
@@ -713,11 +733,12 @@ def lineProfilMetric_parabola(lineProfil):
 #########################################################################################
 # Line profile configurations:
 #########################################################################################
-def loadLineProfileConfig(_lpConfigPath):
+def loadLineProfileConfig(_lpConfigPath, _backgroundCorr):
 	'''
 	Def: Load the congiguration parameters for the lines profile.
 	@_lpConfigPath (Str): Path of the json with the configuration parameters for the 
 		analysis.
+	asd 
 	Return:
 		Dict
 			spotsSize: The size of the spots to study.
@@ -741,6 +762,19 @@ def loadLineProfileConfig(_lpConfigPath):
 	if lpConfig["triangle"].shape[1:] != (3, 2):
 		sys.exit("The triangle coordinates should be defined as three positions in 2D.")
 	
+	if _backgroundCorr == True:
+		lpConfig["backgroundRoi"] = np.asarray(lpConfig["backgroundRoi"])
+		if "backgroundRoi" not in lpConfig:
+			sys.exit("The background correction flag was raised but it is not defined " \
+			         "in the configuration file.")
+		if lpConfig["backgroundRoi"].shape != (2, 2):
+			sys.exit("The definition of the background ROI is supposed to be two " \
+			         "positions in 2D. This is not the case in the configuration " \
+			         "provided.")
+		# asd plus de check?
+	else:
+		lpConfig["backgroundRoi"] = None
+
 	return lpConfig
 
 
@@ -862,7 +896,7 @@ def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _savePath):
 	
 	
 def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos, 
-	                        _savePath):
+	                        _savePath, _backgroundCorr):
 	"""
 	Def.: Show the lines profile defined in the configuration file superposed on _im.
 	@_im (2D numpy array): The image to study.
@@ -873,6 +907,8 @@ def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos,
 	@_lpExtPos (list of lists): Edges of every line profile arranged as
 				[nbSector, nbAngle, nbRow, nbLpCurrSectorAndRow, ptsExt, nDim]
 	@_savePath (Str): Path where to save the figure.
+	@_backgroundCorr (Boolean): If a line was defined in the configuration to estimate 
+	    the background, show where the line is on the image.
 	TODO: Possibly 1 on 1.5 pixels offset.
 	TODO: Add an option for seeing subset of line profile?
 	"""
@@ -910,6 +946,13 @@ def showLinesProfileOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _lpExtPos,
 						plt.fill(np.append(oneSide[:, 0], otherSide[::-1, 0]), \
 						         np.append(oneSide[:, 1], otherSide[::-1, 1]), \
 						         color=color[cAng])
+
+	if _backgroundCorr == True:
+		bckgLine = _lpConfig["backgroundRoi"]
+		plt.fill([bckgLine[0, 0], bckgLine[1, 0]], [bckgLine[0, 1], bckgLine[1, 1]], \
+		          color='y')
+
+
 	plt.tight_layout(pad=0)
 	if _savePath is None:
 		plt.show()	
@@ -1011,8 +1054,10 @@ def cropImage(_im, _imSpacing, _minIntensityFrac=0.02):
 	xOutside = lpConfig['triangle'][:, 1:, 0].flatten()
 	yOutside = lpConfig['triangle'][:, 1:, 1].flatten()
 	offsetSpotSize = int(np.max(lpConfig['spotsSize']) / _imSpacing[0])
-	xWidthInIdxs = int((xOutside.max() - xOutside.min()) / _imSpacing[0]) + offsetSpotSize
-	yWidthInIdxs = int((yOutside.max() - yOutside.min()) / _imSpacing[1]) + offsetSpotSize
+	xWidthInIdxs = int((xOutside.max() - xOutside.min()) / _imSpacing[0]) \
+	                + offsetSpotSize
+	yWidthInIdxs = int((yOutside.max() - yOutside.min()) / _imSpacing[1]) \
+	                + offsetSpotSize
 
 	if ((idxsEdges[1][1] - idxsEdges[1][0]) > xWidthInIdxs) and \
 		((idxsEdges[0][1] - idxsEdges[0][0]) > yWidthInIdxs):
@@ -1120,7 +1165,7 @@ def simplifyImagesName(_imName):
 	
 	if tmp != "":
 		for i in range(len(_imName)):
-			_imName[i] = _imName[i].lstrip(redondantPart)
+			_imName[i] = _imName[i][len(redondantPart):]
 	
 	return _imName
 
@@ -1223,7 +1268,11 @@ def parserCreator():
 	parser.add_argument('--simplifyName', action='store_true', required=False, \
 						dest='simplifyName', default=False, \
 						help='When saving results, simplify the image name.')
-						
+	parser.add_argument('--backgroundCorr', action='store_true', required=False,\
+						dest='backgroundCorr', default=False, \
+						help='Estimate the phantom background value using the line ' \
+						     'defined in the configuration file.')
+
 	return parser.parse_args()
 
 
@@ -1274,7 +1323,7 @@ if __name__=='__main__':
 	listIm, imSpacing = loadImages(args.imPath, args.zIndex, binFormat, \
 	                               args.nSpacing)
 
-	lpConfig = loadLineProfileConfig(args.lpConfigPath)
+	lpConfig = loadLineProfileConfig(args.lpConfigPath, args.backgroundCorr)
 	
 	checkTriangleValidity(lpConfig, _behavior="")
 	lpExtPos, spotsCenter = genLpExtremumPos(lpConfig)
@@ -1287,7 +1336,8 @@ if __name__=='__main__':
 		                    args.pathForFigures)
 	if args.showLinesProfile == True:
 		showLinesProfileOnImage(listIm[args.imageShown], imSpacing, lpConfig, 
-								spotsCenter, lpExtPos, args.pathForFigures)
+								spotsCenter, lpExtPos, args.pathForFigures, 
+								args.backgroundCorr)
 	
 	if args.saveResults != None:
 		resultArray = -np.ones(shape=(len(listIm), 3 * len(lpConfig["spotsSize"])))
@@ -1299,7 +1349,7 @@ if __name__=='__main__':
 		                             args.stackofIt)
 
 		segLp = extractAllLineProfile(im, lpExtPos, lpConfig["spotsSize"], imSpacing, \
-		                              args.roiRatio)	
+		                              args.roiRatio, lpConfig["backgroundRoi"])	
 		results = computeSectorValleyToPeak(segLp, args.metric, args.roiRatio, 
 		                                    args.showVprHistos, imSpacing, 
 		                                    cFigSavePath)
@@ -1312,6 +1362,7 @@ if __name__=='__main__':
 			print(f"ROI on peaks      : {100.0 * args.roiRatio[0]:.0f}%")
 			print(f"ROI on valleys    : {100.0 * args.roiRatio[1]:.0f}%")
 			print('Rod size (mm)     : ', end='')
+
 			for i,v in enumerate(results[0]):
 				if v < RAYLEIGH_CRITERION:
 					print(fmtResolved(lpConfig['spotsSize'][i], '.3f') + '\t', end='')
@@ -1337,7 +1388,11 @@ if __name__=='__main__':
 			resultArray[l, nbSpot:(2 * nbSpot)] = np.round(results[1], 3)
 			resultArray[l, (2 * nbSpot):] = results[2]
 			# Remove file extention from name
-			imName[l] = cImName.rsplit( ".", 1)[0]
+			if args.stackofIt == True:
+				imName[l] = cImName
+			else:
+				imName[l] = cImName.rsplit(".", 1)[0]
+
 
 	if args.saveResults != None:
 		iterables = [["Average VPR", "Stdev VPR", "Resolvability [%]"], \
