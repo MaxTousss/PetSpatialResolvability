@@ -807,6 +807,11 @@ def showAxialView(_im, _zIndex, _savePath=None):
 	                     _zIndex[1] - _zIndex[0] + 1, edgecolor=color, facecolor='none')
 	ax.add_patch(rect) 
 
+	print("The --showAxialView argument only helps in selecting the argument (-z) which "
+	      "defines the slice(s) in the transverse view to do the resolvability/VPR "
+	      "analysis. You can see your current selection in the image. "
+		  "The script will exit after the image is closed.")
+
 	plt.tight_layout(pad=0)
 	if _savePath is None:
 		plt.show()	
@@ -1215,9 +1220,10 @@ def parserCreator():
 							'lpConfigPath. Stop the script after the file is created.')	
 	parser.add_argument('--showAxialView', action='store_true', required=False,\
 						dest='showAxialView', default=False, \
-						help='Show an axial view of the first image provided with an ' 
-						     'overlay of the z indexes that will be summed. Only work '
-						     'for 3D images. The script exit after showing the view.')
+						help='Display an axial view of the first image provided with ' 
+						     'an overlay of the z indexes that will be summed (based of '
+						     'the -z option). Only work for 3D images. The script exit '
+						     'after showing the view.')
 	parser.add_argument('--showTriangPos', action='store_true', required=False,\
 						dest='showTriangPos', default=False, \
 						help='Show the triangle positions on the first image provided '
