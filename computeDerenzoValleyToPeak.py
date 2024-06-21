@@ -78,6 +78,7 @@ import pandas as pd
 # from scipy.spatial.transform import Rotation
 # For results production
 import matplotlib.pylab as plt 
+from matplotlib.patches import Rectangle
 
 
 
@@ -90,6 +91,9 @@ RAYLEIGH_CRITERION = 0.735
 # The parabola metric was built by assuming that most of the ROI will be used. As such
 # the code warn the user if the values used are lower than the following.
 roiRatioForParabola = 0.95
+
+# Global variable
+bShowAxialView = False 
 
 
 #########################################################################################
@@ -237,6 +241,10 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 			else:
 				imSpacing = tmpDicom.PixelSpacing
 				imShape = cIm.shape
+
+		if bShowAxialView == True and l == 0:
+			showAxialView(cIm, _zIndex)
+			sys.exit("Exiting since axial view was shown.")
 
 		cIm = np.sum(cIm[_zIndex[0]:(_zIndex[1] + 1)], axis=0)
 
@@ -774,6 +782,44 @@ def genJsonExample(_path):
 #########################################################################################
 # Visualization features:
 #########################################################################################
+def showAxialView(_im, _zIndex, _savePath=None):
+	"""
+	Def.: Show an axial slice of _im with an overlay of the z index that will be summed.
+	@_im (3D numpy array): The image to study.
+	@_zIndex (2 Int): The z index that will be summed. 
+	@_savePath (Str): Path where to save the figure. (Not used atm)
+	"""
+	# Parameters of visualization.
+	color = 'orange'
+	
+	fig, ax = plt.subplots()
+	# Trick to show the slice where there is something when the image is not at the 
+	# center
+	if _im[:, _im.shape[1]//2, :].sum() > _im[:, :, _im.shape[2]//2].sum():
+		imSlice = _im[:, _im.shape[1]//2, :]
+	else:
+		imSlice = _im[:, :, _im.shape[2]//2]
+	ax.imshow(imSlice, interpolation='none', cmap='Greys_r', origin='lower', \
+	          vmax=np.sort(imSlice.flatten())[int(0.999 * _im.shape[0] * _im.shape[2])])
+	ax.axis('off')
+	
+	rect = plt.Rectangle((0, _zIndex[0]), imSlice.shape[-1], 
+	                     _zIndex[1] - _zIndex[0] + 1, edgecolor=color, facecolor='none')
+	ax.add_patch(rect) 
+
+	print("The --showAxialView argument only helps in selecting the argument (-z) which "
+	      "defines the slice(s) in the transverse view to do the resolvability/VPR "
+	      "analysis. You can see your current selection in the image. "
+		  "The script will exit after the image is closed.")
+
+	plt.tight_layout(pad=0)
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + "zROI.png")
+		plt.close()
+
+
 def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 	"""
 	Def.: Show the triangles defined in _lpConfig superposed on _im.
@@ -1172,6 +1218,12 @@ def parserCreator():
 						help='Generate an example of json file used to store the '
 							'configuration of the lines profile that is saved at '
 							'lpConfigPath. Stop the script after the file is created.')	
+	parser.add_argument('--showAxialView', action='store_true', required=False,\
+						dest='showAxialView', default=False, \
+						help='Display an axial view of the first image provided with ' 
+						     'an overlay of the z indexes that will be summed (based of '
+						     'the -z option). Only work for 3D images. The script exit '
+						     'after showing the view.')
 	parser.add_argument('--showTriangPos', action='store_true', required=False,\
 						dest='showTriangPos', default=False, \
 						help='Show the triangle positions on the first image provided '
@@ -1267,6 +1319,9 @@ if __name__=='__main__':
 		genJsonExample(args.lpConfigPath)
 		sys.exit("The Json example file was created. See " + args.lpConfigPath)
 		
+	if args.showAxialView == True:
+		bShowAxialView = True
+
 	if args.binFormat != None:
 		binFormat = args.binFormat + (args.binOffset, args.binVoxelFloatType)
 	else:
