@@ -208,7 +208,7 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 		if _imFormat != None:
 			imShape = [int(_imFormat[2]), int(_imFormat[1]), \
 							int(_imFormat[0])]
-			if _imFormat[-1] == -1:
+			if _imFormat.size == 4:
 				# CASToR
 				cIm = np.fromfile(path, dtype=np.float32, offset=0).reshape(imShape)
 			else:
