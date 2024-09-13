@@ -193,11 +193,10 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 	@_zIndex (Two integer): The range, defined as min and max, of Z index to merge.
 	@_amideRotMatrix (List, Float)[9]: The rotation matrix, row-wise, to apply to the 
 		image before doing the Z-wise merge. 
-	@_imFormat (List, Float)[6]: The number of voxel in z, y and x axis and the 
-		size of the voxel in (x, y). After that, it is an offset (in bytes) for the 
-		image. If the value is -1, it is used to indicates that we are dealing with 
-		CASToR images. The last value is used to indicates the the number of bytes used
-		to store the image voxel.
+	@_imFormat (List, Float)[4-6]: The number of voxel in z, y and x axis and the 
+		size of the voxel in (x, y). If it's size is 4, it is a CASToR image.
+		If its size is 6, the first is an offset (in bytes) to skip the image header and
+		the second is the size of the float (e.g., 32 vs 64). 
 	Return:
 		listIm (List, 2D numpy array)
 		imSpacing (List, 2 floats)
@@ -209,14 +208,14 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 		if _imFormat != None:
 			imShape = [int(_imFormat[2]), int(_imFormat[1]), \
 							int(_imFormat[0])]
-			if _imFormat[-2] == -1:
+			if _imFormat[-1] == -1:
 				# CASToR
 				cIm = np.fromfile(path, dtype=np.float32, offset=0).reshape(imShape)
 			else:
 				# binary
 				voxType = np.dtype(getattr(np, 'float' + str(_imFormat[-1])))
 				cIm = np.fromfile(path, dtype=voxType, 
-				                  offset=_imFormat[-1]).reshape(imShape)
+				                  offset=_imFormat[-2]).reshape(imShape)
 			imSpacing = [_imFormat[3], _imFormat[3]]
 		else:
 			cIm = loadDicomFromDirectory(path)[::-1, ::-1, :]
