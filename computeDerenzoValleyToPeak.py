@@ -1166,8 +1166,8 @@ def simplifyImagesName(_imName):
 	
 	if tmp != "":
 		for i in range(len(_imName)):
-			_imName[i] = _imName[i].lstrip(redondantPart)
-	
+			_imName[i] = _imName[i][len(redondantPart):]
+
 	return _imName
 
 
