@@ -79,6 +79,7 @@ import pandas as pd
 # For results production
 import matplotlib.pylab as plt 
 from matplotlib.patches import Rectangle
+import nibabel as nib
 
 
 
@@ -129,6 +130,8 @@ def loadImages(_imPath, _zIndex, _binFormat, _nImSpacing):
 			# CASToR images
 			imFormat, imPath = extractCastorImInfo(_imPath)
 			listIm, imSpacing = load3DImages(imPath, _zIndex, None, imFormat)
+		elif _imPath[0].endswith(".nii.gz"):
+			listIm, imSpacing = load3DImages(_imPath, _zIndex, None, None)
 		elif _imPath[0].endswith(".npy"):
 			# With numpy, we assume that the file hold either...
 			#    a 3D numpy array as a stack of 2D images 
@@ -218,6 +221,11 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 				cIm = np.fromfile(path, dtype=voxType, 
 				                  offset=_imFormat[-1]).reshape(imShape)
 			imSpacing = [_imFormat[3], _imFormat[3]]
+		elif path.endswith(".nii.gz"):
+			nii_img  = nib.load(path)
+			cIm = nii_img.get_fdata().T
+			# We do not use vozel size in the z dimension
+			imSpacing = nii_img.header.get_zooms()[:-1]
 		else:
 			cIm = loadDicomFromDirectory(path)[::-1, ::-1, :]
 		# if _amideRotMatrix != None:
@@ -839,7 +847,7 @@ def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 	imDom = (-tmpY, tmpY, -tmpX, tmpX)
 	
 	fig, ax = plt.subplots()
-	ax.imshow(_im, interpolation='none', cmap='Greys_r', extent=imDom, origin='lower', \
+	ax.imshow(_im, interpolation='bilinear', cmap='Greys_r', extent=imDom, origin='lower', \
 				vmax=np.sort(_im.flatten())[int(0.999 * _im.shape[0] * _im.shape[1])])
 	ax.axis('off')
 	
