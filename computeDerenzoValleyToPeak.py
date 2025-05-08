@@ -1076,7 +1076,7 @@ def runConfigurationHelper(_im, _imSpacing, _lpConfig, _lpConfigPath):
 	imDom = (-tmpY, tmpY, -tmpX, tmpX)
 
 	fig, ax = plt.subplots()
-	ax.imshow(_im, interpolation='bilinear', cmap='Greys_r', extent=imDom, origin='lower',
+	ax.imshow(_im, interpolation='none', cmap='Greys_r', extent=imDom, origin='lower',
 				vmax=np.sort(_im.flatten())[int(0.999 * _im.shape[0] * _im.shape[1])])
 	ax.axis('off')
 
@@ -1129,7 +1129,7 @@ def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 	imDom = (-tmpY, tmpY, -tmpX, tmpX)
 	
 	fig, ax = plt.subplots()
-	ax.imshow(_im, interpolation='bilinear', cmap='Greys_r', extent=imDom, origin='lower', \
+	ax.imshow(_im, interpolation='none', cmap='Greys_r', extent=imDom, origin='lower', \
 				vmax=np.sort(_im.flatten())[int(0.999 * _im.shape[0] * _im.shape[1])])
 	ax.axis('off')
 	
