@@ -208,7 +208,7 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 		if _imFormat != None:
 			imShape = [int(_imFormat[2]), int(_imFormat[1]), \
 							int(_imFormat[0])]
-			if _imFormat.size == 4:
+			if len(_imFormat) == 4:
 				# CASToR
 				cIm = np.fromfile(path, dtype=np.float32, offset=0).reshape(imShape)
 			else:
@@ -1269,7 +1269,7 @@ def parserCreator():
 						help='Used for better verbose when showing results from a ' \
 								'stack of 2D numpy arrays that are iterations.')
 	parser.add_argument('--binVoxelFloatType', type=int, required=False,\
-						dest='binVoxFType', default=32, \
+						dest='binVoxelFloatType', default=32, \
 						help='Set the number of bytes used for voxel float value.')
 	parser.add_argument('--simplifyName', action='store_true', required=False, \
 						dest='simplifyName', default=False, \
@@ -1322,7 +1322,7 @@ if __name__=='__main__':
 		bShowAxialView = True
 
 	if args.binFormat != None:
-		binFormat = args.binFormat + (args.binOffset, args.binVoxelFloatType)
+		binFormat = args.binFormat + [args.binOffset, args.binVoxelFloatType]
 	else:
 		binFormat = None
 	listIm, imSpacing = loadImages(args.imPath, args.zIndex, binFormat, \
