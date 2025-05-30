@@ -225,15 +225,12 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 			nii_img  = nib.load(path)
 			cIm = nii_img.get_fdata().T
 			if cIm.ndim != 3: 
-				trivialDim = list(cIm.shape) == np.ones(cIm.ndim)
-				# print(nii_img.header["pixdim"])
 				imSpacing = nii_img.header["pixdim"][1:3]
 				cIm = np.squeeze(cIm)
 				cIm = cIm[:, ::-1, :]
 			else:
 				# We do not use vozel size in the z dimension
 				imSpacing = nii_img.header.z()[:-1]
-			# print(imSpacing)
 		else:
 			cIm = loadDicomFromDirectory(path)[::-1, ::-1, :]
 		# if _amideRotMatrix != None:
