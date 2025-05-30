@@ -79,6 +79,7 @@ import pandas as pd
 # For results production
 import matplotlib.pylab as plt 
 from matplotlib.patches import Rectangle
+import nibabel as nib
 
 
 
@@ -129,6 +130,8 @@ def loadImages(_imPath, _zIndex, _binFormat, _nImSpacing):
 			# CASToR images
 			imFormat, imPath = extractCastorImInfo(_imPath)
 			listIm, imSpacing = load3DImages(imPath, _zIndex, None, imFormat)
+		elif _imPath[0].endswith(".nii.gz") or _imPath[0].endswith(".nii"):
+			listIm, imSpacing = load3DImages(_imPath, _zIndex, None, None)
 		elif _imPath[0].endswith(".npy"):
 			# With numpy, we assume that the file hold either...
 			#    a 3D numpy array as a stack of 2D images 
@@ -218,6 +221,16 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 				cIm = np.fromfile(path, dtype=voxType, 
 				                  offset=_imFormat[-1]).reshape(imShape)
 			imSpacing = [_imFormat[3], _imFormat[3]]
+		elif path.endswith(".nii.gz") or path.endswith(".nii"):
+			nii_img  = nib.load(path)
+			cIm = nii_img.get_fdata().T
+			if cIm.ndim != 3: 
+				imSpacing = nii_img.header["pixdim"][1:3]
+				cIm = np.squeeze(cIm)
+				cIm = cIm[:, ::-1, :]
+			else:
+				# We do not use vozel size in the z dimension
+				imSpacing = nii_img.header.z()[:-1]
 		else:
 			cIm = loadDicomFromDirectory(path)[::-1, ::-1, :]
 		# if _amideRotMatrix != None:

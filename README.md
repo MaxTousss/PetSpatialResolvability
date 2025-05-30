@@ -110,7 +110,7 @@ The script then sums the 2D slices of the given range to create a 2D image to an
 For the analysis of a single slice, you can put twice the z index in the -z argument, for instance `-z 128 128` will only select the slice 128.
 
 ## Format
-The following formats are (at least partially) supported: dicom, dicom directory, binary (float32/float64) with or without header offset, CASToR and 2D/3D numpy. 
+The following formats are (at least partially) supported: dicom, dicom directory, binary (float32/float64) with or without header offset, CASToR, 2D/3D numpy and nii/nii.gz. 
 In all cases, the image spatial offset is ignored currently. 
 
 The script can process multiple files with one command by providing multiple arguments to `-f`. 
