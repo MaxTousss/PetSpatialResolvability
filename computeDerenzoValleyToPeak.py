@@ -1012,7 +1012,7 @@ class Region:
 			nextModeStr = 'arrow'
 		elif _nextMode == DisplayMode.Spot:
 			nextModeStr = 'spot'
-		self.axes.set_title(f'TAB to switch to {nextModeStr} display. Arrows should turn clockwise. '
+		self.axes.set_title(f'TAB to switch to {nextModeStr} display. Arrows should turn counterclockwise. '
 		                     'Exiting saves the configuration.', wrap=True)
 
 

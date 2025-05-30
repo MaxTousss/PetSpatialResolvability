@@ -62,7 +62,7 @@ All the circles, three for each sector, can be moved to their correct locations 
 Note that for each sector:
 
 - The red circle should be the one nearest to the phantom center. 
-- The green circle and blue circle should be placed such that red-green-blue goes clockwise relative to the sector center. 
+- The green circle and blue circle should be placed such that red-green-blue goes counterclockwise relative to the sector center. 
 
 When you believe that the current placements are satisfactory, pressing `tab` will show how the spots would be placed with the current triangle vertices.
 If you want to adjust the triangle vertices, pressing `tab` again will return in the previous mode.
@@ -95,8 +95,8 @@ Note that the script terminates at the end of this operation and the script need
 The `--showTriangPos` option can be used to validate the positron of the triangle vertices. 
 In the following image, you can see the results of that option when the configuration file was correctly defined. 
 The first position, show in red, should be the one nearest to the phantom center. 
-The second position, shown in green, should be the next vertex by going clockwise (relative to the sector center). 
-The third position, shown in blue, should be the final vertex again by going clockwise.
+The second position, shown in green, should be the next vertex by going counterclockwise (relative to the sector center). 
+The third position, shown in blue, should be the final vertex again by going counterclockwise.
 
 <img src='preview/01_posTriang.png' alt="posTriang" width='300'> 
 
