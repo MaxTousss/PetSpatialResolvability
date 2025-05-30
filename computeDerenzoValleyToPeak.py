@@ -867,7 +867,7 @@ class Region:
 		cornerCount = len(self.corners)
 		for i in range(cornerCount):
 			arrow = plt.annotate('', xy=self.corners[i].xy, xytext=self.corners[(i + 1) % cornerCount].xy,
-			                     arrowprops=dict(arrowstyle='<-', mutation_scale=28, color=color[i]))
+			                     arrowprops=dict(arrowstyle='<|-', mutation_scale=28, color=color[i]))
 			self.arrows.append(arrow)
 
 		self.cidpress = _figure.canvas.mpl_connect('button_press_event', self.onPress)
