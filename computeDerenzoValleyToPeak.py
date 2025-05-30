@@ -856,6 +856,7 @@ class Region:
 		self.figure = _figure
 		self.axes = _axes
 		self.mode = DisplayMode.Arrow
+		self.updateTitle(DisplayMode.Spot)
 		self.spotSize = _spotSize
 		self.nbRows = _nbRows
 		self.imSpacing = _imSpacing
@@ -983,6 +984,8 @@ class Region:
 		@_event (KeyEvent): The event to handle.
 		"""
 		if _event.key == 'tab':
+			self.axes.set_title(f'Press tab to switch to {self.mode}')
+			self.updateTitle(self.mode)  # current mode before the switch will be the next mode
 			if self.mode == DisplayMode.Arrow:
 				self.mode = DisplayMode.Spot
 				self.updateSpots()
@@ -998,6 +1001,19 @@ class Region:
 	def draw(self):
 		"""Def: Redraw the figure."""
 		self.figure.canvas.draw()
+
+
+	def updateTitle(self, _nextMode):
+		"""
+		Def: Update the title string with the next mode.
+		@_nextMode (DisplayMode): The next mode TAB will travel to.
+		"""
+		if _nextMode == DisplayMode.Arrow:
+			nextModeStr = 'arrow'
+		elif _nextMode == DisplayMode.Spot:
+			nextModeStr = 'spot'
+		self.axes.set_title(f'TAB to switch to {nextModeStr} display. Arrows should turn clockwise. '
+		                     'Exiting saves the configuration.', wrap=True)
 
 
 class SpotCircle:
@@ -1088,7 +1104,6 @@ def runConfigurationHelper(_im, _imSpacing, _lpConfig, _lpConfigPath):
 		           _nbRows=_lpConfig["nbRows"][region], _imSpacing=_imSpacing[0], _figure=fig, _axes=ax)
 		regions.append(r)
 
-	plt.tight_layout(pad=0)
 	plt.show()
 
 	# Backup to old file, just in case
