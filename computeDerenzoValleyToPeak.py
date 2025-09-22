@@ -491,7 +491,7 @@ def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
 		List of lists, contains every segments of all line profiles, arranged as
 				[nbSector, nbAngle, nbRow, nbLpCurrSectorAndRow, section, val]
 	"""
-	imSize = np.asarray(_im.shape[0]) * _imSpacing
+	imSize = np.asarray(_im.shape) * _imSpacing
 	
 	# Init first level of the dictionnary
 	segLp = len(_lpExtPos) * [None,]
