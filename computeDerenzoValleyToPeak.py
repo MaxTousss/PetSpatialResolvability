@@ -64,11 +64,13 @@ TODO: (See also TODO in the code)
 #########################################################################################
 # Basic python module
 import sys
+import enum
 import numpy as np
 import json
 import argparse
 import warnings
 import os
+import shutil
 # To read dicom
 import pydicom
 # Csv creation
@@ -78,6 +80,7 @@ import pandas as pd
 # from scipy.spatial.transform import Rotation
 # For results production
 import matplotlib.pylab as plt 
+from matplotlib.patches import Rectangle
 
 
 
@@ -90,6 +93,9 @@ RAYLEIGH_CRITERION = 0.735
 # The parabola metric was built by assuming that most of the ROI will be used. As such
 # the code warn the user if the values used are lower than the following.
 roiRatioForParabola = 0.95
+
+# Global variable
+bShowAxialView = False 
 
 
 #########################################################################################
@@ -238,6 +244,10 @@ def load3DImages(_listofPath, _zIndex, _amideRotMatrix, _imFormat):
 				imSpacing = tmpDicom.PixelSpacing
 				imShape = cIm.shape
 
+		if bShowAxialView == True and l == 0:
+			showAxialView(cIm, _zIndex)
+			sys.exit("Exiting since axial view was shown.")
+
 		cIm = np.sum(cIm[_zIndex[0]:(_zIndex[1] + 1)], axis=0)
 
 		listIm += [cIm,]
@@ -329,12 +339,6 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 	@_tolRel (Float): Give a tolerance, relative to the sector spots size, for the check.
 	@_behavior (Str): Provide instructions on how the script should react from the 
 		result of the check.
-	Return:
-		Dict
-			spotsSize: The size of the spots to study.
-			nbRows: The number of rows for each spots to study.
-			triangle: The position of the three spots that delimit the trinagle of each 
-				spots to study.
 	'''
 	nbSector = len(_lpConfig['spotsSize'])
 	# Tell the user which pair of coordinates of the triangle from which the problem 
@@ -357,7 +361,92 @@ def checkTriangleValidity(_lpConfig, _tolRel=0.25, _behavior='warn'):
 					warnings.warn(mess)
 
 
-def genLpExtremumPos(_lpConfig):
+def genSectorLpExtremumPos(_corners, _spotSize, _nbRows):
+	"""
+	Def.: Generate the extrema positions (start and end) of each line profile of a sector.
+	@_corners (list): List of 3 positions represented as a list of two values (x,y).
+	@_spotSize (float): Size of a spot in mm.
+	@_nbRows (int): Count of rows of splots in the region.
+	Return:
+	lpExtPos (list of lists): Edges of every line profile arranged as
+				[nbSector, nbAngle, nbRow, nbLpCurrSectorAndRow, ptsExt, nDim]
+	spotsCenter (List of numpy arrays): Positions of spots centers.
+	"""
+	nbAngle = 3
+	cSpotSize = _spotSize
+	cNbRows = _nbRows
+	cTriangExtCenterPos = _corners
+
+	# Compute the center of all the spots
+	spotsCenter = np.zeros((int(cNbRows * (cNbRows + 1) / 2), 2))
+	spotsCenter[0, :] = cTriangExtCenterPos[0]
+	cSpot = 1
+	cTriangRightExtDir = cTriangExtCenterPos[1] - cTriangExtCenterPos[0]
+	cTriangRightExtDir /= np.linalg.norm(cTriangRightExtDir)
+	cTriangLeftExtDir = cTriangExtCenterPos[2] - cTriangExtCenterPos[0]
+	cTriangLeftExtDir /= np.linalg.norm(cTriangLeftExtDir)
+	cTriangRightToLeftExtDir = cTriangExtCenterPos[2] - cTriangExtCenterPos[1]
+	cTriangRightToLeftExtDir /= np.linalg.norm(cTriangRightToLeftExtDir)
+	cNbSpotsInRow = 2
+	for cRow in range(1, cNbRows):
+		cRowRightExtPos = cTriangExtCenterPos[0] + cRow * 2.0 * cSpotSize * cTriangRightExtDir
+		spotsCenter[cSpot, :] = cRowRightExtPos
+		cSpot += 1
+		cRowLeftExtPos = cTriangExtCenterPos[0] + cRow * 2.0 * cSpotSize * cTriangLeftExtDir
+		for cSpotInRow in range(1, cNbSpotsInRow - 1):
+			spotsCenter[cSpot, :] = cRowRightExtPos + cSpotInRow * 2.0 * cSpotSize * cTriangRightToLeftExtDir
+			cSpot += 1
+		spotsCenter[cSpot, :] = cRowLeftExtPos
+		cSpot += 1
+		cNbSpotsInRow += 1
+
+	# Compute all the line profile extremum.
+	lpExtPos = nbAngle * [None,]
+	# Away from center. (Shortest to longest row)
+	lpExtPos[0] = (cNbRows - 1) * [None,]
+	cLeftSpot = 0
+	for cRow in range(1, cNbRows):
+		cLeftSpot += 1  # Trick of only need to skip one	
+		nbLpInCurrRow = cRow
+		lpExtPos[0][cRow - 1] = nbLpInCurrRow * [None,]
+		for cLp in range(nbLpInCurrRow):
+			firstExtPos = spotsCenter[cLeftSpot, :] - 0.5 * cSpotSize * cTriangRightToLeftExtDir
+			cRightSpot = cLeftSpot + 1
+			secExtPos = spotsCenter[cRightSpot, :] + 0.5 * cSpotSize * cTriangRightToLeftExtDir
+			lpExtPos[0][cRow - 1][cLp] = np.stack((firstExtPos, secExtPos))
+			cLeftSpot = cRightSpot
+	# From the right side. (Longest to shortest row)
+	lpExtPos[1] = (cNbRows - 1) * [None,]
+	for cRow in range(0, cNbRows - 1):
+		cLeftSpot = int((cRow + 1) * (cRow + 2) / 2) - 1
+		nbLpInCurrRow = cNbRows - cRow - 1
+		lpExtPos[1][cRow] = nbLpInCurrRow * [None,]
+		for cLp in range(nbLpInCurrRow):
+			cRightSpot = cLeftSpot + cLp + cRow + 1
+			firstExtPos = spotsCenter[cLeftSpot, :] \
+							- 0.5 * cSpotSize * cTriangRightExtDir
+			secExtPos = spotsCenter[cRightSpot, :] \
+							+ 0.5 * cSpotSize * cTriangRightExtDir
+			lpExtPos[1][cRow][cLp] = np.stack((firstExtPos, secExtPos))
+			cLeftSpot = cRightSpot
+	# From the left side. (Longest to shortest row)
+	lpExtPos[2] = (cNbRows - 1) * [None,]
+	for cRow in range(0, cNbRows - 1):
+		cFirstSpot = int((cRow + 1) * cRow / 2)
+		nbLpInCurrRow = cNbRows - cRow - 1
+		lpExtPos[2][cRow] = nbLpInCurrRow * [None,]
+		for cLp in range(nbLpInCurrRow):
+			cSecSpot = cFirstSpot + cLp + cRow + 2
+			firstExtPos = spotsCenter[cFirstSpot, :] \
+							- 0.5 * cSpotSize * cTriangLeftExtDir
+			secExtPos = spotsCenter[cSecSpot, :] \
+							+ 0.5 * cSpotSize * cTriangLeftExtDir
+			lpExtPos[2][cRow][cLp] = np.stack((firstExtPos, secExtPos))
+			cFirstSpot = cSecSpot
+	return lpExtPos, spotsCenter
+
+
+def genAllLpExtremumPos(_lpConfig):
 	"""
 	Def.: Generate the extrema positions (start and end) of each line profile.
 	@_lpConfig (Dict): Configuration of the lines profile to extract.
@@ -368,87 +457,16 @@ def genLpExtremumPos(_lpConfig):
 	# cNbLpForOneAngle = int(cNbRows * (cNbRows - 1) / 2)
 	"""
 	# Constants:
-	nbAngle = 3
 	nbSector = len(_lpConfig["spotsSize"])
-	
-	lpExtPos = nbSector *  [None,]
-	spotsCenter = nbSector *  [None,]
-	for cSect in range(nbSector):		
-		cSpotSize = _lpConfig["spotsSize"][cSect]
-		cNbRows = _lpConfig["nbRows"][cSect]
-		cTriangExtCenterPos = _lpConfig["triangle"][cSect]
-		
-		# Compute the center of all the spots
-		spotsCenter[cSect] = np.zeros((int(cNbRows * (cNbRows + 1) / 2), 2))
-		spotsCenter[cSect][0, :] = cTriangExtCenterPos[0]
-		cSpot = 1
-		cTriangRightExtDir = cTriangExtCenterPos[1] - cTriangExtCenterPos[0]
-		cTriangRightExtDir /= np.linalg.norm(cTriangRightExtDir)
-		cTriangLeftExtDir = cTriangExtCenterPos[2] - cTriangExtCenterPos[0]
-		cTriangLeftExtDir /= np.linalg.norm(cTriangLeftExtDir)
-		cTriangRightToLeftExtDir = cTriangExtCenterPos[2] - cTriangExtCenterPos[1]
-		cTriangRightToLeftExtDir /= np.linalg.norm(cTriangRightToLeftExtDir)
-		cNbSpotsInRow = 2
-		for cRow in range(1, cNbRows):
-			cRowRightExtPos = cTriangExtCenterPos[0] \
-								+ cRow * 2.0 * cSpotSize * cTriangRightExtDir
-			spotsCenter[cSect][cSpot, :] = cRowRightExtPos
-			cSpot += 1
-			cRowLeftExtPos = cTriangExtCenterPos[0] \
-								+ cRow * 2.0 * cSpotSize * cTriangLeftExtDir
-			for cSpotInRow in range(1, cNbSpotsInRow - 1):
-				spotsCenter[cSect][cSpot, :] = cRowRightExtPos \
-								+ cSpotInRow * 2.0 * cSpotSize * cTriangRightToLeftExtDir
-				cSpot += 1
-			spotsCenter[cSect][cSpot, :] = cRowLeftExtPos
-			cSpot += 1
-			cNbSpotsInRow += 1
-		
-		# Compute all the line profile extremum.
-		lpExtPos[cSect] = nbAngle * [None,]	
-		# Away from center. (Shortest to longest row)
-		lpExtPos[cSect][0] = (cNbRows - 1) * [None,]
-		cLeftSpot = 0
-		for cRow in range(1, cNbRows):
-			cLeftSpot += 1 # Trick of only need to skip one	
-			nbLpInCurrRow = cRow
-			lpExtPos[cSect][0][cRow - 1] = nbLpInCurrRow * [None,]
-			for cLp in range(nbLpInCurrRow):
-				firstExtPos = spotsCenter[cSect][cLeftSpot, :] \
-								- 0.5 * cSpotSize * cTriangRightToLeftExtDir
-				cRightSpot = cLeftSpot + 1
-				secExtPos = spotsCenter[cSect][cRightSpot, :] \
-								+ 0.5 * cSpotSize * cTriangRightToLeftExtDir
-				lpExtPos[cSect][0][cRow - 1][cLp] = np.stack((firstExtPos, secExtPos))
-				cLeftSpot = cRightSpot
-		# From the right side. (Longest to shortest row)
-		lpExtPos[cSect][1] = (cNbRows - 1) * [None,]
-		for cRow in range(0, cNbRows - 1):
-			cLeftSpot = int((cRow + 1) * (cRow + 2) / 2) - 1
-			nbLpInCurrRow = cNbRows - cRow - 1
-			lpExtPos[cSect][1][cRow] = nbLpInCurrRow * [None,]
-			for cLp in range(nbLpInCurrRow):
-				cRightSpot = cLeftSpot + cLp + cRow + 1
-				firstExtPos = spotsCenter[cSect][cLeftSpot, :] \
-								- 0.5 * cSpotSize * cTriangRightExtDir
-				secExtPos = spotsCenter[cSect][cRightSpot, :] \
-								+ 0.5 * cSpotSize * cTriangRightExtDir
-				lpExtPos[cSect][1][cRow][cLp] = np.stack((firstExtPos, secExtPos))
-				cLeftSpot = cRightSpot
-		# From the left side. (Longest to shortest row)
-		lpExtPos[cSect][2] = (cNbRows - 1) * [None,]
-		for cRow in range(0, cNbRows - 1):
-			cFirstSpot = int((cRow + 1) * cRow / 2)
-			nbLpInCurrRow = cNbRows - cRow - 1
-			lpExtPos[cSect][2][cRow] = nbLpInCurrRow * [None,]
-			for cLp in range(nbLpInCurrRow):
-				cSecSpot = cFirstSpot + cLp + cRow + 2
-				firstExtPos = spotsCenter[cSect][cFirstSpot, :] \
-								- 0.5 * cSpotSize * cTriangLeftExtDir
-				secExtPos = spotsCenter[cSect][cSecSpot, :] \
-								+ 0.5 * cSpotSize * cTriangLeftExtDir
-				lpExtPos[cSect][2][cRow][cLp] = np.stack((firstExtPos, secExtPos))
-				cFirstSpot = cSecSpot
+
+	lpExtPos = nbSector * [None,]
+	spotsCenter = nbSector * [None,]
+	for cSect in range(nbSector):
+		sectorLpExtPos, sectorSpotsCenter = genSectorLpExtremumPos(_lpConfig["triangle"][cSect],
+		                                                           _lpConfig["spotsSize"][cSect],
+		                                                           _lpConfig["nbRows"][cSect])
+		lpExtPos[cSect] = sectorLpExtPos
+		spotsCenter[cSect] = sectorSpotsCenter
 
 	return lpExtPos, spotsCenter
 
@@ -475,7 +493,7 @@ def extractAllLineProfile(_im, _lpExtPos, _spotsSize, _imSpacing, _roiRatio, \
 		List of lists, contains every segments of all line profiles, arranged as
 				[nbSector, nbAngle, nbRow, nbLpCurrSectorAndRow, section, val]
 	"""
-	imSize = np.asarray(_im.shape[0]) * _imSpacing
+	imSize = np.asarray(_im.shape) * _imSpacing
 	
 	if _backgroundRoi is not None:
 		# Discretize line profile sampling.
@@ -808,6 +826,340 @@ def genJsonExample(_path):
 #########################################################################################
 # Visualization features:
 #########################################################################################
+def showAxialView(_im, _zIndex, _savePath=None):
+	"""
+	Def.: Show an axial slice of _im with an overlay of the z index that will be summed.
+	@_im (3D numpy array): The image to study.
+	@_zIndex (2 Int): The z index that will be summed. 
+	@_savePath (Str): Path where to save the figure. (Not used atm)
+	"""
+	# Parameters of visualization.
+	color = 'orange'
+	
+	fig, ax = plt.subplots()
+	# Trick to show the slice where there is something when the image is not at the 
+	# center
+	if _im[:, _im.shape[1]//2, :].sum() > _im[:, :, _im.shape[2]//2].sum():
+		imSlice = _im[:, _im.shape[1]//2, :]
+	else:
+		imSlice = _im[:, :, _im.shape[2]//2]
+	ax.imshow(imSlice, interpolation='none', cmap='Greys_r', origin='lower', \
+	          vmax=np.sort(imSlice.flatten())[int(0.999 * _im.shape[0] * _im.shape[2])])
+	ax.axis('off')
+	
+	rect = plt.Rectangle((0, _zIndex[0]), imSlice.shape[-1], 
+	                     _zIndex[1] - _zIndex[0] + 1, edgecolor=color, facecolor='none')
+	ax.add_patch(rect) 
+
+	print("The --showAxialView argument only helps in selecting the argument (-z) which "
+	      "defines the slice(s) in the transverse view to do the resolvability/VPR "
+	      "analysis. You can see your current selection in the image. "
+		  "The script will exit after the image is closed.")
+
+	plt.tight_layout(pad=0)
+	if _savePath is None:
+		plt.show()	
+	else:
+		plt.savefig(_savePath + "zROI.png")
+		plt.close()
+
+
+class DisplayMode(enum.Enum):
+	"""Def: Available display mode for the configuration view."""
+	Arrow = 0
+	Spot = 1
+
+
+class Region:
+	def __init__(self, _positions, _spotSize, _nbRows, _imSpacing, _figure, _axes):
+		"""
+		Def: Create a spot region on the target Figure and Axes.
+		@_positions (list): List of initial corner positions as lists of two values.
+		@_spotSize (float): The spot diameter.
+		@_nbRows (int): Number of rows in the region.
+		@_imSpacing (float): The pixel size.
+		@_figure (Figure): The figure to display the region in.
+		@_axes (Axes): The Axes to display the region in.
+		"""
+		color = ['r', 'g', 'b']
+		self.corners = []
+		self.spots = []
+		self.arrows = []
+		self.currentCorner = None
+		self.press = None
+		self.figure = _figure
+		self.axes = _axes
+		self.mode = DisplayMode.Arrow
+		self.updateTitle(DisplayMode.Spot)
+		self.spotSize = _spotSize
+		self.nbRows = _nbRows
+		self.imSpacing = _imSpacing
+
+		for i, pos in enumerate(_positions):
+			c = SpotCircle(pos, _spotSize, _imSpacing, color[i], _axes=self.axes, _zorder=3)
+			self.corners.append(c)
+
+		cornerCount = len(self.corners)
+		for i in range(cornerCount):
+			arrow = plt.annotate('', xy=self.corners[i].xy, xytext=self.corners[(i + 1) % cornerCount].xy,
+			                     arrowprops=dict(arrowstyle='<|-', mutation_scale=28, color=color[i]))
+			self.arrows.append(arrow)
+
+		self.cidpress = _figure.canvas.mpl_connect('button_press_event', self.onPress)
+		self.cidrelease = _figure.canvas.mpl_connect('button_release_event', self.onRelease)
+		self.cidmotion = _figure.canvas.mpl_connect('motion_notify_event', self.onMotion)
+		self.cidswap = _figure.canvas.mpl_connect('key_press_event', self.onTab)
+
+
+	def setArrowsVisibility(self, _visible):
+		"""
+		Def: Set the arrow visibility status.
+		@_visible (bool): If True, the arrows will be visible.
+		"""
+		for arrow in self.arrows:
+			arrow.set_visible(_visible)
+
+	def setSpotsVisibility(self, _visible):
+		"""
+		Def: Set the spot circles visibility status.
+		@_visible (bool): If True, the spots will be visible.
+		"""
+		for spot in self.spots:
+			spot.setVisible(_visible)
+
+	def setCornersVisible(self, _visible):
+		"""
+		Def: Set the corner circles visibility status.
+		@_visible (bool): If True, the corners will be visible.
+		"""
+		for corner in self.corners:
+			corner.setVisible(_visible)
+
+
+	def onPress(self, _event):
+		"""
+		Def: Handle mouse click events to select corners.
+		@_event (MouseEvent): Mouse click event to handle.
+		"""
+		for i, corner in enumerate(self.corners):
+			if corner.contains(_event):
+				self.press = corner.xy, (_event.xdata, _event.ydata)
+				self.currentCorner = corner
+				self.cornerIndex = i
+				self.setArrowsVisibility(False)
+
+
+	def onMotion(self, _event):
+		"""
+		Def: Handle mouse motion events to move corners if selected.
+		@_event (MouseEvent): The mouse event to handle.
+		"""
+		if self.press is None or _event.inaxes != self.axes:
+			return
+		(x0, y0), (xpress, ypress) = self.press
+		dx = _event.xdata - xpress
+		dy = _event.ydata - ypress
+		newXy = np.array([x0 + dx, y0 + dy])
+		self.setCornerPosition(newXy)
+		self.draw()
+
+
+	def setCornerPosition(self, _newXy):
+		"""
+		Def: Set the selected corner position. Also updates arrow positions.
+		@_newXy (list): The new position to set to the corner.
+		"""
+		# set the position of the arrow pointing this corner
+		self.arrows[self.cornerIndex].xy = _newXy
+		# set the position of the arrow starting at this corner
+		self.arrows[(self.cornerIndex - 1) % 3].xyann = _newXy
+		# set the corener objection position
+		self.currentCorner.setXy(_newXy)
+
+
+	def onRelease(self, _event):
+		"""Def: Handle the mouse release event."""
+		self.press = None
+		self.currentCorner = None
+		if self.mode == DisplayMode.Arrow:
+			self.setArrowsVisibility(True)
+		self.updateSpots()
+		self.draw()
+
+
+	def updateSpots(self):
+		"""Def: Clear old spots and generate new ones according to the current corners."""
+		if self.mode != DisplayMode.Spot:
+			return
+		for spot in self.spots:
+			spot.remove()
+		self.spots.clear()
+
+		_lineProfiles, spots = genSectorLpExtremumPos(self.getCornersPos(), self.spotSize, self.nbRows)
+		for spot in spots:
+			newSpot = SpotCircle(spot, self.spotSize, self.imSpacing, 'darkorange', _axes=self.axes)
+			self.spots.append(newSpot)
+
+
+	def getCornersPos(self):
+		"""
+		Def: Get a list of the current corner positions.
+		Return (List): List of each corner positions represented as a list.
+		"""
+		corners = []
+		for corner in self.corners:
+			corners.append(corner.xy)
+		return corners
+
+
+	def onTab(self, _event):
+		"""
+		Def: Handle key press event to change the current display mode.
+		@_event (KeyEvent): The event to handle.
+		"""
+		if _event.key == 'tab':
+			self.axes.set_title(f'Press tab to switch to {self.mode}')
+			self.updateTitle(self.mode)  # current mode before the switch will be the next mode
+			if self.mode == DisplayMode.Arrow:
+				self.mode = DisplayMode.Spot
+				self.updateSpots()
+				self.setArrowsVisibility(False)
+				self.setSpotsVisibility(True)
+			else:
+				self.mode = DisplayMode.Arrow
+				self.setArrowsVisibility(True)
+				self.setSpotsVisibility(False)
+			self.draw()
+
+
+	def draw(self):
+		"""Def: Redraw the figure."""
+		self.figure.canvas.draw()
+
+
+	def updateTitle(self, _nextMode):
+		"""
+		Def: Update the title string with the next mode.
+		@_nextMode (DisplayMode): The next mode TAB will travel to.
+		"""
+		if _nextMode == DisplayMode.Arrow:
+			nextModeStr = 'arrow'
+		elif _nextMode == DisplayMode.Spot:
+			nextModeStr = 'spot'
+		self.axes.set_title(f'TAB to switch to {nextModeStr} display. Arrows should turn counterclockwise. '
+		                     'Exiting saves the configuration.', wrap=True)
+
+
+class SpotCircle:
+	"""Def: Represent a spot in the image. Displays a circle of the spot size and a circle of a pixel size. """
+	def __init__(self, _xy, _spotSize, _imSpacing, _color, _axes, _zorder=1):
+		"""
+		@_xy (list): Position of the spot.
+		@_spotSize (float): Diameter of the spot.
+		@_color (str): Color of the spot as a matplotlib color string.
+		@_axes (Axes): Axes to draw to spot on.
+		@_zorder (int): Display zorder.
+		"""
+		self.xy = _xy
+		# Expected spot
+		self.spot = plt.Circle(xy=_xy,
+		                       radius=_spotSize / 2.0,
+		                       edgecolor=_color, facecolor='none', zorder=_zorder, 
+		                       linewidth=2.5)
+
+		# Vertices of the triangle
+		self.verticle = plt.Circle(xy=_xy,
+		                           radius=_imSpacing / 2.0,
+		                           edgecolor=_color, facecolor=_color, zorder=_zorder)
+		_axes.add_patch(self.spot)
+		_axes.add_patch(self.verticle)
+
+
+	def contains(self, event):
+		"""
+		Def: Check if the circle contains the mouse event.
+		Returns (bool): True if the event is in the cicle.
+		"""
+		if event.inaxes == self.spot.axes:
+			contains, _attrd, = self.spot.contains(event)
+			return contains
+
+
+	def setXy(self, newXy):
+		"""
+		Def: Set the position of the circle.
+		@newXy (list): The new position.
+		"""
+		self.spot.set_center(newXy)
+		self.verticle.set_center(newXy)
+		self.xy = newXy
+
+
+	def remove(self):
+		"""Def: Remove the circle for the Axes."""
+		self.spot.remove()
+		self.verticle.remove()
+
+
+	def setVisible(self, visible):
+		"""
+		Def: Set the visibily of the circle.
+		@visible (bool): If True circle will be display.
+		"""
+		self.spot.set_visible(visible)
+		self.verticle.set_visible(visible)
+
+
+def runConfigurationHelper(_im, _imSpacing, _lpConfig, _lpConfigPath):
+	"""
+	Def.: Run the configuration helper to setup the triangles defined in _lpConfig superposed on _im. Saves the result
+	      in _lpConfigPath.
+	@_im (2D numpy array): The image to study.
+	@_imSpacing (List, 2 floats): Physical space, in x and y axes, between the image 
+		pixels.
+	@_lpConfig (Dict): Configuration of the lines profile to extract.
+	@_lpConfigPath (Str): Path where to save the configuration.
+	TODO: Possibly 1 or 1.5 pixels offset.
+	"""
+	# Put image in physical space.
+	tmpX = _im.shape[0] * _imSpacing[0] / 2.0
+	tmpY = _im.shape[1] * _imSpacing[1] / 2.0
+	imDom = (-tmpY, tmpY, -tmpX, tmpX)
+
+	fig, ax = plt.subplots()
+	ax.imshow(_im, interpolation='none', cmap='Greys_r', extent=imDom, origin='lower',
+				vmax=np.sort(_im.flatten())[int(0.999 * _im.shape[0] * _im.shape[1])])
+	ax.axis('off')
+
+	regions = []
+	# For all sectors defined in _lpConfig
+	for region in range(_lpConfig["triangle"].shape[0]):
+		r = Region(_lpConfig["triangle"][region], _spotSize=_lpConfig["spotsSize"][region],
+		           _nbRows=_lpConfig["nbRows"][region], _imSpacing=_imSpacing[0], _figure=fig, _axes=ax)
+		regions.append(r)
+
+	plt.show()
+
+	# Backup to old file, just in case
+	backupFile = f"{_lpConfigPath}.bck"
+	shutil.copy(_lpConfigPath, backupFile)
+	print(f"Kept the old configuraiton in {backupFile}")
+
+	# Gather the new positions
+	newPositions = []
+	for region in regions:
+		corners = []
+		for corner in region.getCornersPos():
+			corners.append(corner.tolist())
+		newPositions.append(corners)
+	_lpConfig["triangle"] = newPositions
+
+	serializedConfig = json.dumps(_lpConfig, indent=4)
+	with open(_lpConfigPath, "w", encoding="utf-8") as f:
+		f.write(serializedConfig)
+	print(f"Saved the new configuration in {_lpConfigPath}")
+
+
 def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 	"""
 	Def.: Show the triangles defined in _lpConfig superposed on _im.
@@ -852,7 +1204,7 @@ def showTrianglePosOnImage(_im, _imSpacing, _lpConfig, _savePath):
 		plt.savefig(_savePath + "posTriang.png")
 		plt.close()
 	
-	
+
 def showSpotsPosOnImage(_im, _imSpacing, _lpConfig, _spotsCenter, _savePath):
 	"""
 	Def.: Show the spots position predicted from the configuration file superposed on 
@@ -1166,7 +1518,6 @@ def simplifyImagesName(_imName):
 	if tmp != "":
 		for i in range(len(_imName)):
 			_imName[i] = _imName[i][len(redondantPart):]
-	
 	return _imName
 
 
@@ -1217,6 +1568,12 @@ def parserCreator():
 						help='Generate an example of json file used to store the '
 							'configuration of the lines profile that is saved at '
 							'lpConfigPath. Stop the script after the file is created.')	
+	parser.add_argument('--showAxialView', action='store_true', required=False,\
+						dest='showAxialView', default=False, \
+						help='Display an axial view of the first image provided with ' 
+						     'an overlay of the z indexes that will be summed (based of '
+						     'the -z option). Only work for 3D images. The script exit '
+						     'after showing the view.')
 	parser.add_argument('--showTriangPos', action='store_true', required=False,\
 						dest='showTriangPos', default=False, \
 						help='Show the triangle positions on the first image provided '
@@ -1273,6 +1630,10 @@ def parserCreator():
 						help='Estimate the phantom background value using the line ' \
 						     'defined in the configuration file.')
 
+	parser.add_argument('--configurationHelper', action='store_true',
+	                    help="Start the corner positionning tool, this updates the config"
+	                         " and prevents analysis from running")
+						
 	return parser.parse_args()
 
 
@@ -1316,6 +1677,9 @@ if __name__=='__main__':
 		genJsonExample(args.lpConfigPath)
 		sys.exit("The Json example file was created. See " + args.lpConfigPath)
 		
+	if args.showAxialView == True:
+		bShowAxialView = True
+
 	if args.binFormat != None:
 		binFormat = args.binFormat + (args.binOffset, args.binVoxelFloatType)
 	else:
@@ -1325,8 +1689,12 @@ if __name__=='__main__':
 
 	lpConfig = loadLineProfileConfig(args.lpConfigPath, args.backgroundCorr)
 	
+	if args.configurationHelper:
+		runConfigurationHelper(listIm[args.imageShown], imSpacing, lpConfig, args.lpConfigPath)
+		sys.exit(0)
+
 	checkTriangleValidity(lpConfig, _behavior="")
-	lpExtPos, spotsCenter = genLpExtremumPos(lpConfig)
+	lpExtPos, spotsCenter = genAllLpExtremumPos(lpConfig)
 	
 	if args.showTriangPos == True:
 		showTrianglePosOnImage(listIm[args.imageShown], imSpacing, lpConfig, \
@@ -1405,5 +1773,3 @@ if __name__=='__main__':
 		if extension not in ["", ".csv"]:
 			print("Forcing the extension of the results file to be a csv.")  
 		data.to_csv(filename + ".csv")
-	
-	

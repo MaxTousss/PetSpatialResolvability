@@ -53,14 +53,50 @@ If you include rows with missing spots, the resolvability will be inaccurate.
 The following assume that your image format is supported by the script. 
 See the section titled `Image format` if you are not sure.
 
-### Validate the position of the triangle vertices 
+### Defining the position of the triangle vertices 
 While the first two parameters of the configuration file should be known by the user, the last one is dependent on the script internal orientation/order of the $(x, y)$ axes. 
 It is therefore **not** recommended to use another software to find the $(x, y)$ positions.
-Currently, it is often more straight forward to use the `--showTriangPos` option and mouse-over to get the values needed in the configuration file. 
+Assuming that you have already defined a configuration file with the correct number of rows and size of the spots, you will be able to use the option `--configurationHelper` to adjust the positions of the triangle vertices on the image provided to the script.
+This option will show the triangle vertices as specified in the provided configuration file.
+All the circles, three for each sector, can be moved to their correct locations from the matplotlib viewer.
+Note that for each sector:
+
+- The red circle should be the one nearest to the phantom center. 
+- The green circle and blue circle should be placed such that red-green-blue goes counterclockwise relative to the sector center. 
+
+When you believe that the current placements are satisfactory, pressing `tab` will show how the spots would be placed with the current triangle vertices.
+If you want to adjust the triangle vertices, pressing `tab` again will return in the previous mode.
+If you are satisfied with the result, close the matplotlib viewer and the configuration file will be updated with the placements provided.
+Note that the script terminates at the end of this operation and the script needs to be relaunched, without that option, to analyze image(s).
+<div style="display: flex; gap: 10px;">
+  <figure style="margin: 0; text-align: center;">
+    <img src="preview/05_cconfigHelper_inc_p1.png" width="400" />
+    <figcaption>Initial triangle positions</figcaption>
+  </figure>
+  <figure style="margin: 0; text-align: center;">
+    <img src="preview/06_cconfigHelper_inc_p2.png" width="400" />
+    <figcaption>Resulting spot positions</figcaption>
+</div>
+
+<div style="display: flex; gap: 10px;">
+  </figure>
+  <figure style="margin: 0; text-align: center;">
+    <img src="preview/07_cconfigHelper_corr_p1.png" width="400" />
+    <figcaption>Corrected triangle positions</figcaption>
+  </figure>
+  <figure style="margin: 0; text-align: center;">
+    <img src="preview/08_cconfigHelper_corr_p2.png" width="400" />
+    <figcaption>Resulting spot positions</figcaption>
+  </figure>
+</div>
+
+
+### Validate the position of the triangle vertices
+The `--showTriangPos` option can be used to validate the positron of the triangle vertices. 
 In the following image, you can see the results of that option when the configuration file was correctly defined. 
 The first position, show in red, should be the one nearest to the phantom center. 
-The second position, shown in blue, should be the next vertex by going clockwise (relative to the sector center). 
-The third position, shown in green, should be the final vertex again by going clockwise.
+The second position, shown in green, should be the next vertex by going counterclockwise (relative to the sector center). 
+The third position, shown in blue, should be the final vertex again by going counterclockwise.
 
 <img src='preview/01_posTriang.png' alt="posTriang" width='300'> 
 
